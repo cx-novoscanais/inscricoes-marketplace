@@ -30,12 +30,15 @@ validar.onclick=()=>{
       const dataRows=XLSX.utils.sheet_to_json(ws,{defval:''});
       validRows=[];
       let bad=0;
+
       tbody.innerHTML=dataRows.map((r,i)=>{
         const miss=required.filter(k=>String(r[k]??'').trim()==='');
         const good=miss.length===0;
         if(good) validRows.push(r); else bad++;
+
         return '<tr><td>'+(i+2)+'</td><td>'+esc(r.cpf)+'</td><td>'+esc(r.nome)+'</td><td>'+esc(r.businessKeyOferta)+'</td><td>'+esc(r.diasDaSemanaSelecionado||'')+'</td><td class="'+(good?'ok':'bad')+'">'+(good?'PRONTO':'ERRO')+'</td><td>'+miss.map(x=>'Falta: '+x).join('<br>')+'</td></tr>';
       }).join('');
+
       total.textContent=dataRows.length;
       prontos.textContent=validRows.length;
       erros.textContent=bad;
@@ -43,7 +46,10 @@ validar.onclick=()=>{
       oferta.disabled=validRows.length!==1;
       dmhBox.classList.add('hidden');
       finalBox.classList.add('hidden');
-      if(validRows.length>1) alert('Para o primeiro teste, deixe somente 1 linha preenchida na planilha.');
+
+      if(validRows.length>1){
+        alert('Para o primeiro teste, deixe somente 1 linha preenchida na planilha.');
+      }
     }catch(err){
       alert('Erro ao ler a planilha: '+err.message);
     }
@@ -54,17 +60,27 @@ validar.onclick=()=>{
 oferta.onclick=async()=>{
   if(validRows.length!==1) return;
   if(!opkey.value) return alert('Digite a chave de operação.');
+
   oferta.disabled=true;
   oferta.textContent='Consultando DMH...';
+
   try{
     const r=await callApi('preview',validRows[0],opkey.value);
-    dmhResult.innerHTML='<p><b>Curso:</b> '+esc(r.offer?.name||'')+'</p>'+
+    const profile=r.credentialProfile==='GLOBAL'
+      ? 'Credencial padrão da API'
+      : 'Credencial específica do canal';
+
+    dmhResult.innerHTML=
+      '<p><b>Curso:</b> '+esc(r.offer?.name||'')+'</p>'+
       '<p><b>idDMH:</b> '+esc(r.offer?.idDMH||'')+'</p>'+
-      '<p><b>Canal:</b> '+esc(String(canal.value))+'</p>'+
+      '<p><b>Canal:</b> '+esc((r.channel?.name||'')+' — '+String(r.channel?.id||canal.value))+'</p>'+
+      '<p><b>Autenticação:</b> '+esc(profile)+'</p>'+
       '<p><b>scheduleList:</b> '+esc(JSON.stringify(r.offer?.scheduleList||[]))+'</p>';
+
     dmhBox.classList.remove('hidden');
-  }catch(err){ alert(err.message); }
-  finally{
+  }catch(err){
+    alert(err.message);
+  }finally{
     oferta.disabled=false;
     oferta.textContent='Consultar oferta no DMH';
   }
@@ -72,15 +88,39 @@ oferta.onclick=async()=>{
 
 enviar.onclick=async()=>{
   if(!opkey.value) return alert('Digite a chave de operação.');
-  if(!confirm('CONFIRMA a criação de 1 inscrição REAL em PRODUÇÃO?')) return;
+  if(!confirm('CONFIRMA a criação de 1 inscrição REAL em PRODUÇÃO no canal selecionado?')) return;
+
   enviar.disabled=true;
-  enviar.textContent='Enviando...';
+  enviar.textContent='Enviando e acompanhando processamento...';
+
   try{
     const r=await callApi('submit',validRows[0],opkey.value);
     finalBox.classList.remove('hidden');
-    const status=r.status?.processamento?.status||r.status?.[0]?.processamento?.status||'RETORNO PENDENTE';
+
     const id=r.created?.id||r.created?.inscricao?.id||r.created?.idOrigem||'';
-    finalResult.innerHTML='<div class="success"><b>Inscrição enviada.</b><br>ID: '+esc(String(id))+'<br>Status de processamento: '+esc(String(status))+'</div>';
+    const status=r.processing?.status||'PROCESSING';
+    const finished=Boolean(r.processing?.finished);
+    const success=String(status).toUpperCase()==='SUCCESS';
+
+    if(success){
+      finalResult.innerHTML=
+        '<div class="success"><b>Inscrição concluída com sucesso.</b><br>'+
+        'ID: '+esc(String(id))+'<br>'+
+        'Canal: '+esc((r.channel?.name||'')+' — '+String(r.channel?.id||''))+'<br>'+
+        'Status de processamento: '+esc(String(status))+'</div>';
+    }else if(finished){
+      finalResult.innerHTML=
+        '<div class="error"><b>A inscrição foi recebida, mas o processamento terminou com erro.</b><br>'+
+        'ID: '+esc(String(id))+'<br>'+
+        'Status: '+esc(String(status))+'</div>';
+    }else{
+      finalResult.innerHTML=
+        '<div class="warn"><b>Inscrição enviada e ainda em processamento.</b><br>'+
+        'ID: '+esc(String(id))+'<br>'+
+        'Status atual: '+esc(String(status))+'<br>'+
+        'O retorno técnico abaixo contém a última consulta realizada.</div>';
+    }
+
     raw.textContent=JSON.stringify(r,null,2);
   }catch(err){
     finalBox.classList.remove('hidden');
@@ -95,20 +135,41 @@ enviar.onclick=async()=>{
 async function callApi(action,row,key){
   const res=await fetch(processUrl,{
     method:'POST',
-    headers:{'content-type':'application/json','x-operator-key':key},
-    body:JSON.stringify({action,row,channelId:Number(canal.value)})
+    headers:{
+      'content-type':'application/json',
+      'x-operator-key':key
+    },
+    body:JSON.stringify({
+      action,
+      row,
+      channelId:Number(canal.value)
+    })
   });
-  const txt=await res.text();
+
+  const responseText=await res.text();
   let j={};
-  try{j=JSON.parse(txt)}catch{j={error:txt}}
+
+  try{
+    j=JSON.parse(responseText);
+  }catch{
+    j={error:responseText};
+  }
+
   if(!res.ok||j.ok===false||j.error){
     const e=new Error(j.error||('HTTP '+res.status));
-    e.raw=txt;
+    e.raw=responseText;
     throw e;
   }
+
   return j;
 }
 
 function esc(v){
-  return String(v??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+  return String(v??'').replace(/[&<>"']/g,m=>({
+    '&':'&amp;',
+    '<':'&lt;',
+    '>':'&gt;',
+    '"':'&quot;',
+    "'":'&#39;'
+  }[m]));
 }
