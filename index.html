@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Inscrições Marketplace</title>
+  <meta name="description" content="Sistema de inscrições Marketplace">
+  <link rel="stylesheet" href="./styles.css">
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+</head>
+<body>
+  <div class="layout">
+    <aside>
+      <div class="brand">Inscrições Marketplace<small>OPERAÇÃO EM MASSA</small></div>
+      <div class="nav active">Nova carga</div>
+      <div class="nav dim">Histórico</div>
+      <div class="nav dim">Relatórios</div>
+    </aside>
+
+    <main>
+      <div class="top">
+        <div>
+          <h1>Nova carga de inscrições</h1>
+          <p class="muted">Graduação • Marketplace</p>
+        </div>
+        <span class="badge">PRODUÇÃO</span>
+      </div>
+
+      <div class="warn">
+        <b>Primeiro teste:</b> esta versão está limitada a <b>1 inscrição por vez</b> em Produção.
+      </div>
+
+      <section class="card">
+        <div class="grid">
+          <div>
+            <label>Produto</label>
+            <select><option>Graduação</option></select>
+          </div>
+          <div>
+            <label>Canal Marketplace</label>
+            <select id="canal"></select>
+          </div>
+        </div>
+
+        <div class="drop">
+          <input id="arquivo" type="file" accept=".xlsx,.xls">
+          <p class="muted">Selecione a planilha modelo preenchida.</p>
+        </div>
+
+        <label class="mt">Chave de operação</label>
+        <input id="opkey" type="password" autocomplete="off" placeholder="Digite a chave para consultar o DMH e enviar a inscrição">
+
+        <div class="actions">
+          <button id="validar">Validar planilha</button>
+          <button id="oferta" class="secondary" disabled>Consultar oferta no DMH</button>
+        </div>
+      </section>
+
+      <section id="resumo" class="hidden">
+        <div class="stats">
+          <div class="stat"><span>Total</span><strong id="total">0</strong></div>
+          <div class="stat"><span>Prontos</span><strong id="prontos">0</strong></div>
+          <div class="stat"><span>Com erro</span><strong id="erros">0</strong></div>
+        </div>
+        <div class="card">
+          <h3>Prévia da planilha</h3>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Linha</th><th>CPF</th><th>Nome</th><th>Business Key</th><th>Dia</th><th>Status</th><th>Detalhe</th></tr></thead>
+              <tbody id="tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section id="dmhBox" class="card hidden">
+        <h3>Oferta encontrada no DMH</h3>
+        <div id="dmhResult"></div>
+        <div class="actions"><button id="enviar" class="danger">Descer inscrição em Produção</button></div>
+      </section>
+
+      <section id="finalBox" class="card hidden">
+        <h3>Resultado</h3>
+        <div id="finalResult"></div>
+        <details><summary>Ver retorno técnico</summary><pre id="raw" class="mono"></pre></details>
+      </section>
+
+      <div class="footer">Inscrições Marketplace • Cogna Novos Canais</div>
+    </main>
+  </div>
+  <script src="./app.js"></script>
+</body>
+</html>
