@@ -204,3 +204,4 @@ tbody tr:hover{background:#fafbfd}
   .form-grid,.history-grid,.metrics-3,.metrics-4,.file-area{grid-template-columns:1fr}
   .offer-summary{grid-template-columns:1fr}
 }
+.error-reason{margin-top:7px;max-width:360px;color:#8f1f18;font-size:10px;line-height:1.35;white-space:normal}.error-reason b{font-weight:800}
