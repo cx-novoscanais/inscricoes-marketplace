@@ -252,7 +252,6 @@ enviar.onclick=async()=>{
     const quoteReady=Boolean(r.processing?.quoteReady);
     const readyForNextStep=Boolean(r.processing?.readyForNextStep);
     const errorDetails=r.processing?.errorDetails||null;
-    const errorDetails=r.processing?.errorDetails||null;
     accepted=Boolean(id);
 
     if(id){
@@ -387,6 +386,7 @@ async function refreshOne(id,cpf,showMessage){
     const info=extractInfo(data);
     const quoteReady=Boolean(r.processing?.quoteReady);
     const readyForNextStep=Boolean(r.processing?.readyForNextStep);
+    const errorDetails=r.processing?.errorDetails||null;
 
     upsertTracking({
       id:String(id),
