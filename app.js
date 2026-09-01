@@ -145,17 +145,30 @@ oferta.onclick=async()=>{
     const p=r.offer?.paymentOptions||{};
     const f=r.offer?.financial||{};
 
+    const is155=Number(r.channel?.id||canal.value)===155;
+    const exemption=r.priceValidation?.channel155FullExemption;
+
     dmhResult.innerHTML=
       '<p><b>Curso:</b> '+esc(r.offer?.name||'')+'</p>'+
       '<p><b>idDMH:</b> '+esc(r.offer?.idDMH||'')+'</p>'+
       '<p><b>Canal:</b> '+esc((r.channel?.name||'')+' — '+String(r.channel?.id||canal.value))+'</p>'+
       '<p><b>Tabela do canal:</b> <span class="ok">CONFIRMADA NO DMH</span></p>'+
       '<p><b>Oferta financeira:</b> <span class="ok">CONFIRMADA</span> — ID '+esc(f.id||'')+'</p>'+
+      (is155
+        ? '<div class="success"><b>Regra do canal 155 confirmada.</b><br>'+
+          'Bolsa de isenção: 100%<br>'+
+          'Todas as parcelas: ISENTAS<br>'+
+          'Até o fim do curso: '+(exemption?.untilEndProgram?'SIM':'NÃO')+
+          (exemption?.scholarshipDescription?'<br>Bolsa DMH: '+esc(exemption.scholarshipDescription):'')+
+          '</div>'
+        : '')+
       '<p><b>Preço base:</b> '+money(p.baseValue ?? f.baseValue)+'</p>'+
       '<p><b>Preço da oferta:</b> '+money(p.offerValue ?? f.offerValue)+'</p>'+
       '<p><b>Valor de matrícula:</b> '+money(p.enrollmentValue ?? f.enrollmentValue)+'</p>'+
       '<p><b>scheduleList:</b> '+esc(JSON.stringify(r.offer?.scheduleList||[]))+'</p>'+
-      '<p class="muted"><b>Validação:</b> a oferta só é liberada para envio quando o canal selecionado está vinculado ao idDMH e existe oferta financeira correspondente.</p>';
+      '<p class="muted"><b>Validação:</b> a oferta só é liberada para envio quando o canal selecionado está vinculado ao idDMH e existe oferta financeira correspondente.'+
+      (is155?' Para o canal 155, também é obrigatório existir bolsa percentual de 100% até o fim do curso e todas as parcelas com valor líquido zero.':'')+
+      '</p>';
 
     dmhBox.classList.remove('hidden');
     enviar.disabled=false;
