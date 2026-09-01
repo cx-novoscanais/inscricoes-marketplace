@@ -252,6 +252,7 @@ enviar.onclick=async()=>{
     const quoteReady=Boolean(r.processing?.quoteReady);
     const readyForNextStep=Boolean(r.processing?.readyForNextStep);
     const errorDetails=r.processing?.errorDetails||null;
+    const businessOutcome=r.processing?.businessOutcome||null;
     accepted=Boolean(id);
 
     if(id){
@@ -270,6 +271,7 @@ enviar.onclick=async()=>{
         readyForNextStep,
         quote:r.processing?.quote||null,
         errorDetails,
+        businessOutcome,
         createdAt:track.createdAt||new Date().toISOString(),
         checkedAt:new Date().toISOString()
       });
@@ -278,7 +280,13 @@ enviar.onclick=async()=>{
       statusCpf.value=track.cpf||String(validRows[0].cpf||'');
     }
 
-    if(readyForNextStep){
+    if(isMarketplaceScholarshipApplied({businessOutcome})){
+      finalResult.innerHTML=
+        '<div class="success"><b>'+esc(businessOutcome.frontendMessage||'Bolsa MarketPlace aplicada na inscrição já existente.')+'</b><br>'+
+        linkedEnrollmentLine(businessOutcome)+
+        '<br><span class="muted-inline">Retorno técnico: '+esc(businessOutcome.code||'KE-5000')+'. A nova tentativa foi inativada porque a bolsa foi vinculada à inscrição existente.</span></div>'+
+        historyButton();
+    }else if(readyForNextStep){
       finalResult.innerHTML=
         '<div class="success"><b>Inscrição concluída e cotação gerada.</b><br>'+
         'ID: '+esc(id)+' • Status: SUCCESS'+quoteSummary(r.processing?.quote)+'</div>'+
@@ -387,6 +395,7 @@ async function refreshOne(id,cpf,showMessage){
     const quoteReady=Boolean(r.processing?.quoteReady);
     const readyForNextStep=Boolean(r.processing?.readyForNextStep);
     const errorDetails=r.processing?.errorDetails||null;
+    const businessOutcome=r.processing?.businessOutcome||null;
 
     upsertTracking({
       id:String(id),
@@ -401,6 +410,7 @@ async function refreshOne(id,cpf,showMessage){
       readyForNextStep,
       quote:r.processing?.quote||null,
       errorDetails,
+      businessOutcome,
       checkedAt:r.checkedAt||new Date().toISOString()
     });
 
@@ -408,7 +418,12 @@ async function refreshOne(id,cpf,showMessage){
     renderReports();
 
     if(showMessage){
-      if(readyForNextStep){
+      if(isMarketplaceScholarshipApplied({businessOutcome})){
+        const linked=businessOutcome?.existingEnrollmentId
+          ? ' Inscrição: '+businessOutcome.existingEnrollmentId+'.'
+          : ' Não foi possível identificar automaticamente o número da inscrição existente.';
+        showStatusMessage((businessOutcome?.frontendMessage||'Bolsa MarketPlace aplicada na inscrição já existente.')+linked);
+      }else if(readyForNextStep){
         showStatusMessage('Inscrição '+id+' concluída com SUCCESS e cotação gerada.');
       }else if(status==='SUCCESS'&&!quoteReady){
         showStatusMessage('Inscrição '+id+' está SUCCESS, mas ainda sem cotação.');
@@ -472,7 +487,7 @@ function loadTracking(){
 }
 
 function renderTracking(){
-  const success=trackingRows.filter(x=>String(x.status).toUpperCase()==='SUCCESS').length;
+  const success=trackingRows.filter(x=>String(x.status).toUpperCase()==='SUCCESS'||isMarketplaceScholarshipApplied(x)).length;
   const processing=trackingRows.filter(x=>!isFinalStatus(x.status)).length;
   const noQuote=trackingRows.filter(x=>String(x.status).toUpperCase()==='SUCCESS'&&!x.quoteReady).length;
 
@@ -495,7 +510,7 @@ function renderTracking(){
       '<td>'+esc(item.nome||'')+'</td>'+
       '<td>'+esc(item.canalNome||item.canalId||'')+'</td>'+
       '<td>'+esc(item.curso||'')+'</td>'+
-      '<td>'+statusBadge(status)+'<br>'+quoteBadge(item.quoteReady,item.status)+errorReasonCell(item)+'</td>'+
+      '<td>'+trackingStatusCell(item)+'</td>'+
       '<td class="nowrap">'+esc(formatDateTime(item.checkedAt||item.createdAt))+'</td>'+
       '<td><button class="mini-btn" data-status-id="'+esc(item.id)+'">Consultar</button></td>'+
     '</tr>';
@@ -504,11 +519,14 @@ function renderTracking(){
 
 function renderReports(){
   const totalCount=trackingRows.length;
-  const successCount=trackingRows.filter(x=>String(x.status).toUpperCase()==='SUCCESS').length;
+  const successCount=trackingRows.filter(x=>String(x.status).toUpperCase()==='SUCCESS'||isMarketplaceScholarshipApplied(x)).length;
   const processingCount=trackingRows.filter(x=>!isFinalStatus(x.status)).length;
   const quoteCount=trackingRows.filter(x=>x.quoteReady).length;
   const noQuoteCount=trackingRows.filter(x=>String(x.status).toUpperCase()==='SUCCESS'&&!x.quoteReady).length;
-  const errorCount=trackingRows.filter(x=>['ERROR','FAILED','FAILURE','CANCELLED','CANCELED'].includes(String(x.status).toUpperCase())).length;
+  const errorCount=trackingRows.filter(x=>
+    ['ERROR','FAILED','FAILURE','CANCELLED','CANCELED'].includes(String(x.status).toUpperCase()) &&
+    !isMarketplaceScholarshipApplied(x)
+  ).length;
 
   reportTotal.textContent=totalCount;
   reportSuccess.textContent=successCount;
@@ -521,7 +539,7 @@ function renderReports(){
     const name=item.canalNome||channelName(Number(item.canalId))||('Canal '+(item.canalId||'—'));
     if(!byChannel[name]) byChannel[name]={total:0,success:0,processing:0,quote:0};
     byChannel[name].total++;
-    if(String(item.status).toUpperCase()==='SUCCESS') byChannel[name].success++;
+    if(String(item.status).toUpperCase()==='SUCCESS'||isMarketplaceScholarshipApplied(item)) byChannel[name].success++;
     if(!isFinalStatus(item.status)) byChannel[name].processing++;
     if(item.quoteReady) byChannel[name].quote++;
   });
@@ -536,6 +554,34 @@ function renderReports(){
     healthItem('SUCCESS sem cotação',noQuoteCount,noQuoteCount?'bad':'ok')+
     healthItem('Erros de processamento',errorCount,errorCount?'bad':'ok')+
     healthItem('Cotações geradas',quoteCount,'ok');
+}
+
+function isMarketplaceScholarshipApplied(item){
+  return item?.businessOutcome?.type==='MARKETPLACE_SCHOLARSHIP_APPLIED_EXISTING';
+}
+
+function linkedEnrollmentLine(outcome){
+  if(outcome?.existingEnrollmentId){
+    return '<b>Inscrição que recebeu a bolsa:</b> '+esc(outcome.existingEnrollmentId);
+  }
+  if(outcome?.existingEnrollmentAmbiguous && Array.isArray(outcome?.candidateEnrollmentIds) && outcome.candidateEnrollmentIds.length){
+    return '<b>Inscrição vinculada:</b> mais de uma inscrição compatível ('+esc(outcome.candidateEnrollmentIds.join(', '))+')';
+  }
+  return '<b>Inscrição que recebeu a bolsa:</b> não identificada automaticamente';
+}
+
+function trackingStatusCell(item){
+  if(isMarketplaceScholarshipApplied(item)){
+    const outcome=item.businessOutcome||{};
+    return '<span class="status-pill status-success">BOLSA APLICADA</span>'+
+      '<div class="business-outcome">'+
+        esc(outcome.frontendMessage||'Bolsa MarketPlace aplicada na inscrição já existente.')+
+        '<br>'+linkedEnrollmentLine(outcome)+
+      '</div>';
+  }
+
+  const status=String(item?.status||'PROCESSING').toUpperCase();
+  return statusBadge(status)+'<br>'+quoteBadge(item.quoteReady,item.status)+errorReasonCell(item);
 }
 
 function errorSummary(details){
@@ -604,6 +650,7 @@ function isFinalStatus(status){
 }
 
 function isFinalWithQuote(item){
+  if(isMarketplaceScholarshipApplied(item) && item?.businessOutcome?.existingEnrollmentId) return true;
   const status=String(item?.status||'').toUpperCase();
   if(['ERROR','FAILED','FAILURE','CANCELLED','CANCELED'].includes(status)) return true;
   return status==='SUCCESS'&&Boolean(item?.quoteReady);
@@ -612,7 +659,8 @@ function isFinalWithQuote(item){
 function needsStatusRefresh(item){
   const status=String(item?.status||'').toUpperCase();
   const isError=['ERROR','FAILED','FAILURE','CANCELLED','CANCELED'].includes(status);
-  if(isError && !errorSummary(item?.errorDetails)) return true;
+  if(isMarketplaceScholarshipApplied(item) && !item?.businessOutcome?.existingEnrollmentId) return true;
+  if(isError && !isMarketplaceScholarshipApplied(item) && !errorSummary(item?.errorDetails)) return true;
   return !isFinalWithQuote(item);
 }
 
