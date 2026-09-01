@@ -1,4 +1,29 @@
 const processUrl='https://oklzhsljbqjfpxmgpcfz.supabase.co/functions/v1/marketplace-process';
+const $=id=>document.getElementById(id);
+
+const canal=$('canal');
+const arquivo=$('arquivo');
+const opkey=$('opkey');
+const validar=$('validar');
+const oferta=$('oferta');
+const enviar=$('enviar');
+const resumo=$('resumo');
+const total=$('total');
+const prontos=$('prontos');
+const erros=$('erros');
+const tbody=$('tbody');
+const dmhBox=$('dmhBox');
+const dmhResult=$('dmhResult');
+const finalBox=$('finalBox');
+const finalResult=$('finalResult');
+const raw=$('raw');
+const statusId=$('statusId');
+const statusCpf=$('statusCpf');
+const consultarStatus=$('consultarStatus');
+const atualizarTodos=$('atualizarTodos');
+const statusMessage=$('statusMessage');
+const statusTbody=$('statusTbody');
+
 const channels=[
 [99,'Vai de bolsa - Marketplace'],[97,'Digdu - Marketplace'],[96,'Vou de bolsa - Marketplace'],
 [94,'Amigo edu - Marketplace'],[98,'Quero bolsa - Marketplace'],[95,'Educa mais brasil - Marketplace'],
@@ -18,11 +43,17 @@ const required=[
 'aceiteTermo','aceitaReceberEmail','aceitaReceberSMS','aceitaReceberWhatsApp'
 ];
 
+const TRACKING_KEY='marketplace_tracking_v2';
 let validRows=[];
+let trackingRows=loadTracking();
+let refreshInProgress=false;
+
+renderTracking();
 
 validar.onclick=()=>{
   if(!arquivo.files[0]) return alert('Selecione uma planilha.');
   const rd=new FileReader();
+
   rd.onload=e=>{
     try{
       const wb=XLSX.read(new Uint8Array(e.target.result),{type:'array'});
@@ -34,9 +65,19 @@ validar.onclick=()=>{
       tbody.innerHTML=dataRows.map((r,i)=>{
         const miss=required.filter(k=>String(r[k]??'').trim()==='');
         const good=miss.length===0;
-        if(good) validRows.push(r); else bad++;
 
-        return '<tr><td>'+(i+2)+'</td><td>'+esc(r.cpf)+'</td><td>'+esc(r.nome)+'</td><td>'+esc(r.businessKeyOferta)+'</td><td>'+esc(r.diasDaSemanaSelecionado||'')+'</td><td class="'+(good?'ok':'bad')+'">'+(good?'PRONTO':'ERRO')+'</td><td>'+miss.map(x=>'Falta: '+x).join('<br>')+'</td></tr>';
+        if(good) validRows.push(r);
+        else bad++;
+
+        return '<tr>'+
+          '<td>'+(i+2)+'</td>'+
+          '<td>'+esc(r.cpf)+'</td>'+
+          '<td>'+esc(r.nome)+'</td>'+
+          '<td>'+esc(r.businessKeyOferta)+'</td>'+
+          '<td>'+esc(r.diasDaSemanaSelecionado||'')+'</td>'+
+          '<td class="'+(good?'ok':'bad')+'">'+(good?'PRONTO':'ERRO')+'</td>'+
+          '<td>'+miss.map(x=>'Falta: '+esc(x)).join('<br>')+'</td>'+
+        '</tr>';
       }).join('');
 
       total.textContent=dataRows.length;
@@ -46,6 +87,12 @@ validar.onclick=()=>{
       oferta.disabled=validRows.length!==1;
       dmhBox.classList.add('hidden');
       finalBox.classList.add('hidden');
+      enviar.disabled=false;
+      enviar.textContent='Descer inscrição em Produção';
+
+      if(validRows.length===1 && !statusCpf.value){
+        statusCpf.value=String(validRows[0].cpf||'');
+      }
 
       if(validRows.length>1){
         alert('Para o primeiro teste, deixe somente 1 linha preenchida na planilha.');
@@ -54,6 +101,7 @@ validar.onclick=()=>{
       alert('Erro ao ler a planilha: '+err.message);
     }
   };
+
   rd.readAsArrayBuffer(arquivo.files[0]);
 };
 
@@ -78,6 +126,8 @@ oferta.onclick=async()=>{
       '<p><b>scheduleList:</b> '+esc(JSON.stringify(r.offer?.scheduleList||[]))+'</p>';
 
     dmhBox.classList.remove('hidden');
+    enviar.disabled=false;
+    enviar.textContent='Descer inscrição em Produção';
   }catch(err){
     alert(err.message);
   }finally{
@@ -88,8 +138,10 @@ oferta.onclick=async()=>{
 
 enviar.onclick=async()=>{
   if(!opkey.value) return alert('Digite a chave de operação.');
+  if(validRows.length!==1) return alert('Valide uma única inscrição antes de enviar.');
   if(!confirm('CONFIRMA a criação de 1 inscrição REAL em PRODUÇÃO no canal selecionado?')) return;
 
+  let accepted=false;
   enviar.disabled=true;
   enviar.textContent='Enviando e acompanhando processamento...';
 
@@ -97,53 +149,269 @@ enviar.onclick=async()=>{
     const r=await callApi('submit',validRows[0],opkey.value);
     finalBox.classList.remove('hidden');
 
-    const id=r.created?.id||r.created?.inscricao?.id||r.created?.idOrigem||'';
-    const status=r.processing?.status||'PROCESSING';
+    const id=String(r.created?.id||r.created?.inscricao?.id||r.created?.idOrigem||'');
+    const status=String(r.processing?.status||'PROCESSING').toUpperCase();
     const finished=Boolean(r.processing?.finished);
-    const success=String(status).toUpperCase()==='SUCCESS';
+    accepted=Boolean(id);
 
-    if(success){
+    if(id){
+      const track=r.tracking||{};
+      upsertTracking({
+        id,
+        cpf:track.cpf||String(validRows[0].cpf||''),
+        nome:track.nome||String(validRows[0].nome||''),
+        canalId:track.canalId||Number(canal.value),
+        canalNome:track.canalNome||channelName(Number(canal.value)),
+        curso:track.curso||'',
+        businessKeyOferta:track.businessKeyOferta||String(validRows[0].businessKeyOferta||''),
+        status,
+        finished,
+        createdAt:track.createdAt||new Date().toISOString(),
+        checkedAt:new Date().toISOString()
+      });
+
+      statusId.value=id;
+      statusCpf.value=track.cpf||String(validRows[0].cpf||'');
+    }
+
+    if(status==='SUCCESS'){
       finalResult.innerHTML=
         '<div class="success"><b>Inscrição concluída com sucesso.</b><br>'+
-        'ID: '+esc(String(id))+'<br>'+
+        'ID: '+esc(id)+'<br>'+
         'Canal: '+esc((r.channel?.name||'')+' — '+String(r.channel?.id||''))+'<br>'+
-        'Status de processamento: '+esc(String(status))+'</div>';
+        'Status de processamento: SUCCESS</div>';
     }else if(finished){
       finalResult.innerHTML=
         '<div class="error"><b>A inscrição foi recebida, mas o processamento terminou com erro.</b><br>'+
-        'ID: '+esc(String(id))+'<br>'+
-        'Status: '+esc(String(status))+'</div>';
+        'ID: '+esc(id)+'<br>'+
+        'Status: '+esc(status)+'</div>';
     }else{
       finalResult.innerHTML=
         '<div class="warn"><b>Inscrição enviada e ainda em processamento.</b><br>'+
-        'ID: '+esc(String(id))+'<br>'+
-        'Status atual: '+esc(String(status))+'<br>'+
-        'O retorno técnico abaixo contém a última consulta realizada.</div>';
+        'ID: '+esc(id)+'<br>'+
+        'Status atual: '+esc(status)+'<br>'+
+        'Ela já foi adicionada ao painel de acompanhamento abaixo. Não envie novamente.</div>';
     }
 
     raw.textContent=JSON.stringify(r,null,2);
+    renderTracking();
+    document.getElementById('trackingBox')?.scrollIntoView({behavior:'smooth',block:'start'});
   }catch(err){
     finalBox.classList.remove('hidden');
     finalResult.innerHTML='<div class="error"><b>Falha:</b> '+esc(err.message)+'</div>';
     raw.textContent=err.raw||'';
   }finally{
-    enviar.disabled=false;
-    enviar.textContent='Descer inscrição em Produção';
+    if(accepted){
+      enviar.disabled=true;
+      enviar.textContent='Inscrição enviada — acompanhe o status';
+    }else{
+      enviar.disabled=false;
+      enviar.textContent='Descer inscrição em Produção';
+    }
   }
 };
 
-async function callApi(action,row,key){
+consultarStatus.onclick=async()=>{
+  const id=String(statusId.value||'').trim();
+  const cpf=String(statusCpf.value||'').trim();
+
+  if(!opkey.value) return alert('Digite a chave de operação no campo acima.');
+  if(!id) return alert('Informe o ID da inscrição.');
+  if(!cpf) return alert('Informe também o CPF para tornar a consulta mais confiável.');
+
+  await refreshOne(id,cpf,true);
+};
+
+atualizarTodos.onclick=async()=>{
+  if(!opkey.value) return alert('Digite a chave de operação no campo acima.');
+
+  const pending=trackingRows.filter(x=>!isFinalStatus(x.status));
+  if(!pending.length){
+    showStatusMessage('Não há inscrições pendentes para atualizar.');
+    return;
+  }
+
+  atualizarTodos.disabled=true;
+  atualizarTodos.textContent='Atualizando...';
+
+  try{
+    for(const item of pending){
+      await refreshOne(item.id,item.cpf,false);
+    }
+    showStatusMessage('Atualização concluída para '+pending.length+' inscrição(ões).');
+  }finally{
+    atualizarTodos.disabled=false;
+    atualizarTodos.textContent='Atualizar pendentes';
+  }
+};
+
+statusTbody.addEventListener('click',async e=>{
+  const btn=e.target.closest('[data-status-id]');
+  if(!btn) return;
+  if(!opkey.value) return alert('Digite a chave de operação no campo acima.');
+
+  const id=btn.getAttribute('data-status-id');
+  const item=trackingRows.find(x=>String(x.id)===String(id));
+  if(!item) return;
+
+  btn.disabled=true;
+  btn.textContent='Consultando...';
+  try{
+    await refreshOne(item.id,item.cpf,true);
+  }finally{
+    btn.disabled=false;
+    btn.textContent='Consultar';
+  }
+});
+
+async function refreshOne(id,cpf,showMessage){
+  try{
+    const r=await callApi('status',null,opkey.value,{enrollmentId:String(id),cpf:String(cpf||'')});
+    const status=String(r.processing?.status||'PROCESSING').toUpperCase();
+    const data=r.processing?.data||null;
+    const info=extractInfo(data);
+
+    upsertTracking({
+      id:String(id),
+      cpf:String(cpf||info.cpf||''),
+      nome:info.nome||'',
+      canalId:info.canalId||'',
+      canalNome:info.canalNome||'',
+      curso:info.curso||'',
+      status,
+      finished:Boolean(r.processing?.finished),
+      checkedAt:r.checkedAt||new Date().toISOString()
+    });
+
+    renderTracking();
+
+    if(showMessage){
+      if(status==='SUCCESS'){
+        showStatusMessage('Inscrição '+id+' concluída com SUCCESS.');
+      }else if(isFinalStatus(status)){
+        showStatusMessage('Inscrição '+id+' finalizada com status '+status+'.');
+      }else{
+        showStatusMessage('Inscrição '+id+' continua em '+status+'. O sistema seguirá permitindo novas consultas sem reenviar a inscrição.');
+      }
+    }
+
+    return r;
+  }catch(err){
+    if(showMessage) showStatusMessage('Não foi possível consultar o ID '+id+': '+err.message,true);
+    throw err;
+  }
+}
+
+function extractInfo(data){
+  if(!data) return {};
+  const item=Array.isArray(data)?data[0]:data;
+  const ins=item?.inscricao||item||{};
+  const dp=item?.dadosPessoais||ins?.dadosPessoais||{};
+  const opcao=ins?.ofertas?.primeiraOpcao||{};
+
+  return {
+    cpf:dp?.cpf||'',
+    nome:dp?.nome||'',
+    canalId:ins?.canalVendas?.id||'',
+    canalNome:channelName(Number(ins?.canalVendas?.id||0)),
+    curso:opcao?.dsCurso||opcao?.name||''
+  };
+}
+
+function upsertTracking(entry){
+  const id=String(entry.id||'').trim();
+  if(!id) return;
+
+  const old=trackingRows.find(x=>String(x.id)===id)||{};
+  const merged={
+    ...old,
+    ...Object.fromEntries(Object.entries(entry).filter(([,v])=>v!==''&&v!==null&&v!==undefined)),
+    id
+  };
+
+  const idx=trackingRows.findIndex(x=>String(x.id)===id);
+  if(idx>=0) trackingRows[idx]=merged;
+  else trackingRows.unshift(merged);
+
+  trackingRows=trackingRows.slice(0,100);
+  localStorage.setItem(TRACKING_KEY,JSON.stringify(trackingRows));
+}
+
+function loadTracking(){
+  try{
+    const data=JSON.parse(localStorage.getItem(TRACKING_KEY)||'[]');
+    return Array.isArray(data)?data:[];
+  }catch{
+    return [];
+  }
+}
+
+function renderTracking(){
+  if(!trackingRows.length){
+    statusTbody.innerHTML='<tr><td colspan="8" class="muted">Nenhuma inscrição acompanhada neste navegador. Você pode informar um ID e CPF acima para consultar uma inscrição já existente.</td></tr>';
+    return;
+  }
+
+  statusTbody.innerHTML=trackingRows.map(item=>{
+    const status=String(item.status||'PROCESSING').toUpperCase();
+    return '<tr>'+
+      '<td class="nowrap"><b>'+esc(item.id)+'</b></td>'+
+      '<td class="nowrap">'+esc(item.cpf||'')+'</td>'+
+      '<td>'+esc(item.nome||'')+'</td>'+
+      '<td>'+esc(item.canalNome||item.canalId||'')+'</td>'+
+      '<td>'+esc(item.curso||'')+'</td>'+
+      '<td>'+statusBadge(status)+'</td>'+
+      '<td class="nowrap">'+esc(formatDateTime(item.checkedAt||item.createdAt))+'</td>'+
+      '<td><button class="mini-btn secondary" data-status-id="'+esc(item.id)+'">Consultar</button></td>'+
+    '</tr>';
+  }).join('');
+}
+
+function statusBadge(status){
+  const s=String(status||'').toUpperCase();
+  let cls='status-unknown';
+  if(s==='SUCCESS') cls='status-success';
+  else if(['PROCESSING','PENDING','IN_PROCESS','INPROCESS'].includes(s)) cls='status-processing';
+  else if(isFinalStatus(s)) cls='status-error';
+
+  return '<span class="status-pill '+cls+'">'+esc(s||'SEM STATUS')+'</span>';
+}
+
+function isFinalStatus(status){
+  return ['SUCCESS','ERROR','FAILED','FAILURE','CANCELLED','CANCELED'].includes(String(status||'').toUpperCase());
+}
+
+function showStatusMessage(message,isError=false){
+  statusMessage.textContent=message;
+  statusMessage.classList.remove('hidden');
+  statusMessage.style.borderColor=isError?'#fecdca':'#d7e3f3';
+  statusMessage.style.background=isError?'#fef3f2':'#f8fbff';
+  statusMessage.style.color=isError?'#b42318':'#344054';
+}
+
+function channelName(id){
+  return channels.find(x=>Number(x[0])===Number(id))?.[1]||'';
+}
+
+function formatDateTime(value){
+  if(!value) return '';
+  const d=new Date(value);
+  if(Number.isNaN(d.getTime())) return String(value);
+  return d.toLocaleString('pt-BR');
+}
+
+async function callApi(action,row,key,extra={}){
+  const body={action,...extra};
+  if(row) body.row=row;
+  if(action!=='status') body.channelId=Number(canal.value);
+
   const res=await fetch(processUrl,{
     method:'POST',
     headers:{
       'content-type':'application/json',
       'x-operator-key':key
     },
-    body:JSON.stringify({
-      action,
-      row,
-      channelId:Number(canal.value)
-    })
+    body:JSON.stringify(body)
   });
 
   const responseText=await res.text();
@@ -156,9 +424,9 @@ async function callApi(action,row,key){
   }
 
   if(!res.ok||j.ok===false||j.error){
-    const e=new Error(j.error||('HTTP '+res.status));
-    e.raw=responseText;
-    throw e;
+    const err=new Error(j.error||('HTTP '+res.status));
+    err.raw=responseText;
+    throw err;
   }
 
   return j;
@@ -173,3 +441,19 @@ function esc(v){
     "'":'&#39;'
   }[m]));
 }
+
+setInterval(async()=>{
+  if(document.visibilityState!=='visible'||refreshInProgress||!opkey.value) return;
+
+  const pending=trackingRows.filter(x=>!isFinalStatus(x.status));
+  if(!pending.length) return;
+
+  refreshInProgress=true;
+  try{
+    for(const item of pending.slice(0,10)){
+      try{ await refreshOne(item.id,item.cpf,false); }catch{}
+    }
+  }finally{
+    refreshInProgress=false;
+  }
+},30000);
