@@ -5,128 +5,261 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Inscrições Marketplace</title>
   <meta name="description" content="Sistema de inscrições Marketplace">
-  <link rel="stylesheet" href="./styles.css">
+  <link rel="stylesheet" href="./styles.css?v=20260901-ui2">
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 </head>
 <body>
-  <div class="layout">
-    <aside>
-      <div class="brand">Inscrições Marketplace<small>OPERAÇÃO EM MASSA</small></div>
-      <div class="nav active">Nova carga</div>
-      <div class="nav dim">Histórico</div>
-      <div class="nav dim">Relatórios</div>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-mark">IM</div>
+        <div>
+          <strong>Inscrições<br>Marketplace</strong>
+          <span>Graduação • Produção</span>
+        </div>
+      </div>
+
+      <nav class="side-nav" aria-label="Navegação principal">
+        <button class="nav-item active" data-view="nova">
+          <span class="nav-icon">＋</span>
+          <span>Nova carga</span>
+        </button>
+        <button class="nav-item" data-view="historico">
+          <span class="nav-icon">◷</span>
+          <span>Histórico</span>
+        </button>
+        <button class="nav-item" data-view="relatorios">
+          <span class="nav-icon">▥</span>
+          <span>Relatórios</span>
+        </button>
+      </nav>
+
+      <div class="sidebar-footer">
+        <span class="env-dot"></span>
+        Ambiente de Produção
+      </div>
     </aside>
 
-    <main>
-      <div class="top">
-        <div>
-          <h1>Nova carga de inscrições</h1>
-          <p class="muted">Graduação • Marketplace</p>
-        </div>
-        <span class="badge">PRODUÇÃO</span>
-      </div>
-
-      <div class="warn">
-        <b>Primeiro teste:</b> esta versão está limitada a <b>1 inscrição por vez</b> em Produção.
-      </div>
-
-      <section class="card">
-        <div class="grid">
+    <main class="content">
+      <section id="viewNova" class="app-view active">
+        <header class="page-header">
           <div>
-            <label>Produto</label>
-            <select><option>Graduação</option></select>
+            <p class="eyebrow">OPERAÇÃO MARKETPLACE</p>
+            <h1>Nova carga de inscrições</h1>
+            <p class="page-subtitle">Valide a planilha, confirme a oferta do canal no DMH e envie a inscrição.</p>
           </div>
-          <div>
-            <label>Canal Marketplace</label>
-            <select id="canal"></select>
+          <span class="environment-badge">PRODUÇÃO</span>
+        </header>
+
+        <div class="notice">
+          <span class="notice-icon">i</span>
+          <div><strong>Envio controlado:</strong> esta versão permanece limitada a 1 inscrição por vez em Produção.</div>
+        </div>
+
+        <section class="panel">
+          <div class="panel-header">
+            <div>
+              <h2>Dados da carga</h2>
+              <p>Selecione o canal e carregue a planilha modelo preenchida.</p>
+            </div>
+            <div class="step-indicator">
+              <span class="step active">1</span><span class="step-line"></span><span class="step">2</span><span class="step-line"></span><span class="step">3</span>
+            </div>
           </div>
-        </div>
 
-        <div class="drop">
-          <input id="arquivo" type="file" accept=".xlsx,.xls">
-          <p class="muted">Selecione a planilha modelo preenchida.</p>
-        </div>
+          <div class="form-grid">
+            <div class="field">
+              <label for="produto">Produto</label>
+              <select id="produto"><option>Graduação</option></select>
+            </div>
+            <div class="field">
+              <label for="canal">Canal Marketplace</label>
+              <select id="canal"></select>
+            </div>
+          </div>
 
-        <label class="mt">Chave de operação</label>
-        <input id="opkey" type="password" autocomplete="off" placeholder="Digite a chave para consultar o DMH e enviar a inscrição">
+          <div class="file-area">
+            <div class="file-copy">
+              <strong>Planilha de inscrições</strong>
+              <span>Formato .xlsx ou .xls</span>
+            </div>
+            <input id="arquivo" type="file" accept=".xlsx,.xls">
+          </div>
 
-        <div class="actions">
-          <button id="validar">Validar planilha</button>
-          <button id="oferta" class="secondary" disabled>Consultar oferta no DMH</button>
-        </div>
+          <div class="field mt">
+            <label for="opkey">Chave de operação</label>
+            <input id="opkey" type="password" autocomplete="off" placeholder="Digite a chave de operação">
+          </div>
+
+          <div class="actions">
+            <button id="validar" class="btn btn-primary">Validar planilha</button>
+            <button id="oferta" class="btn btn-secondary" disabled>Consultar oferta no DMH</button>
+          </div>
+        </section>
+
+        <section id="resumo" class="hidden">
+          <div class="metrics metrics-3">
+            <article class="metric"><span>Total</span><strong id="total">0</strong></article>
+            <article class="metric"><span>Prontos</span><strong id="prontos">0</strong></article>
+            <article class="metric"><span>Com erro</span><strong id="erros">0</strong></article>
+          </div>
+
+          <section class="panel">
+            <div class="panel-header simple">
+              <div>
+                <h2>Prévia da planilha</h2>
+                <p>Confira os dados antes de consultar a oferta.</p>
+              </div>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr><th>Linha</th><th>CPF</th><th>Nome</th><th>Business Key</th><th>Dia</th><th>Status</th><th>Detalhe</th></tr>
+                </thead>
+                <tbody id="tbody"></tbody>
+              </table>
+            </div>
+          </section>
+        </section>
+
+        <section id="dmhBox" class="panel hidden">
+          <div class="panel-header simple">
+            <div>
+              <p class="eyebrow success-text">DMH VALIDADO</p>
+              <h2>Oferta encontrada</h2>
+            </div>
+          </div>
+          <div id="dmhResult"></div>
+          <div class="actions">
+            <button id="enviar" class="btn btn-danger">Descer inscrição em Produção</button>
+          </div>
+        </section>
+
+        <section id="finalBox" class="panel hidden">
+          <div class="panel-header simple"><div><h2>Resultado do envio</h2></div></div>
+          <div id="finalResult"></div>
+          <details class="technical">
+            <summary>Ver retorno técnico</summary>
+            <pre id="raw" class="mono"></pre>
+          </details>
+        </section>
       </section>
 
-      <section id="resumo" class="hidden">
-        <div class="stats">
-          <div class="stat"><span>Total</span><strong id="total">0</strong></div>
-          <div class="stat"><span>Prontos</span><strong id="prontos">0</strong></div>
-          <div class="stat"><span>Com erro</span><strong id="erros">0</strong></div>
+      <section id="viewHistorico" class="app-view">
+        <header class="page-header">
+          <div>
+            <p class="eyebrow">ACOMPANHAMENTO</p>
+            <h1>Histórico de inscrições</h1>
+            <p class="page-subtitle">Acompanhe processamento e geração de cotação sem reenviar a inscrição.</p>
+          </div>
+          <button id="atualizarTodos" class="btn btn-secondary">Atualizar pendentes</button>
+        </header>
+
+        <div class="metrics metrics-4">
+          <article class="metric"><span>Acompanhadas</span><strong id="histTotal">0</strong></article>
+          <article class="metric"><span>Concluídas</span><strong id="histSuccess">0</strong></article>
+          <article class="metric"><span>Processando</span><strong id="histProcessing">0</strong></article>
+          <article class="metric"><span>Sem cotação</span><strong id="histNoQuote">0</strong></article>
         </div>
-        <div class="card">
-          <h3>Prévia da planilha</h3>
-          <div class="table-wrap">
+
+        <section class="panel">
+          <div class="panel-header simple">
+            <div>
+              <h2>Consultar inscrição</h2>
+              <p>Use o ID e o CPF para incluir ou atualizar uma inscrição no histórico.</p>
+            </div>
+          </div>
+
+          <div class="form-grid history-grid">
+            <div class="field">
+              <label for="statusId">ID da inscrição</label>
+              <input id="statusId" inputmode="numeric" placeholder="Ex.: 29898605">
+            </div>
+            <div class="field">
+              <label for="statusCpf">CPF do candidato</label>
+              <input id="statusCpf" placeholder="000.000.000-00">
+            </div>
+            <div class="field">
+              <label for="opkeyHistory">Chave de operação</label>
+              <input id="opkeyHistory" type="password" autocomplete="off" placeholder="Digite a chave de operação">
+            </div>
+          </div>
+
+          <div class="actions">
+            <button id="consultarStatus" class="btn btn-primary">Consultar e adicionar</button>
+          </div>
+          <div id="statusMessage" class="status-message hidden"></div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-header simple">
+            <div>
+              <h2>Inscrições acompanhadas</h2>
+              <p>Dados salvos neste navegador. Use “Consultar” para atualizar uma linha específica.</p>
+            </div>
+          </div>
+          <div class="table-wrap tracking-table">
             <table>
-              <thead><tr><th>Linha</th><th>CPF</th><th>Nome</th><th>Business Key</th><th>Dia</th><th>Status</th><th>Detalhe</th></tr></thead>
-              <tbody id="tbody"></tbody>
+              <thead>
+                <tr>
+                  <th>ID</th><th>CPF</th><th>Nome</th><th>Canal</th><th>Curso</th>
+                  <th>Status</th><th>Última consulta</th><th></th>
+                </tr>
+              </thead>
+              <tbody id="statusTbody"></tbody>
             </table>
           </div>
-        </div>
+        </section>
       </section>
 
-      <section id="dmhBox" class="card hidden">
-        <h3>Oferta encontrada no DMH</h3>
-        <div id="dmhResult"></div>
-        <div class="actions"><button id="enviar" class="danger">Descer inscrição em Produção</button></div>
-      </section>
-
-      <section id="finalBox" class="card hidden">
-        <h3>Resultado</h3>
-        <div id="finalResult"></div>
-        <details><summary>Ver retorno técnico</summary><pre id="raw" class="mono"></pre></details>
-      </section>
-
-      <section id="trackingBox" class="card">
-        <div class="section-title">
+      <section id="viewRelatorios" class="app-view">
+        <header class="page-header">
           <div>
-            <h3>Acompanhamento das inscrições</h3>
-            <p class="muted">Consulte uma inscrição já enviada sem reenviar o cadastro. As inscrições desta tela ficam salvas neste navegador.</p>
+            <p class="eyebrow">VISÃO OPERACIONAL</p>
+            <h1>Relatórios</h1>
+            <p class="page-subtitle">Resumo das inscrições que estão sendo acompanhadas neste navegador.</p>
           </div>
-          <span class="live-dot">STATUS</span>
+          <span id="reportUpdatedAt" class="last-update">—</span>
+        </header>
+
+        <div class="metrics metrics-4">
+          <article class="metric"><span>Total</span><strong id="reportTotal">0</strong></article>
+          <article class="metric"><span>Success</span><strong id="reportSuccess">0</strong></article>
+          <article class="metric"><span>Em processamento</span><strong id="reportProcessing">0</strong></article>
+          <article class="metric"><span>Cotação gerada</span><strong id="reportQuote">0</strong></article>
         </div>
 
-        <div class="grid status-grid">
-          <div>
-            <label>ID da inscrição</label>
-            <input id="statusId" inputmode="numeric" placeholder="Ex.: 29898605">
-          </div>
-          <div>
-            <label>CPF do candidato</label>
-            <input id="statusCpf" placeholder="000.000.000-00">
-          </div>
-        </div>
+        <div class="report-grid">
+          <section class="panel">
+            <div class="panel-header simple">
+              <div>
+                <h2>Volume por canal</h2>
+                <p>Quantidade de inscrições acompanhadas por Marketplace.</p>
+              </div>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>Canal</th><th>Total</th><th>Success</th><th>Processando</th><th>Cotação</th></tr></thead>
+                <tbody id="reportChannelTbody"></tbody>
+              </table>
+            </div>
+          </section>
 
-        <div class="actions">
-          <button id="consultarStatus">Consultar e adicionar</button>
-          <button id="atualizarTodos" class="secondary">Atualizar pendentes</button>
-        </div>
-        <div id="statusMessage" class="status-message hidden"></div>
-
-        <div class="table-wrap tracking-table">
-          <table>
-            <thead>
-              <tr>
-                <th>ID</th><th>CPF</th><th>Nome</th><th>Canal</th><th>Curso</th>
-                <th>Status</th><th>Última consulta</th><th>Ação</th>
-              </tr>
-            </thead>
-            <tbody id="statusTbody"></tbody>
-          </table>
+          <section class="panel">
+            <div class="panel-header simple">
+              <div>
+                <h2>Saúde do processo</h2>
+                <p>Pontos que exigem atenção operacional.</p>
+              </div>
+            </div>
+            <div id="reportHealth" class="health-list"></div>
+          </section>
         </div>
       </section>
 
-      <div class="footer">Inscrições Marketplace • Cogna Novos Canais</div>
+      <footer class="footer">Inscrições Marketplace • Cogna Novos Canais</footer>
     </main>
   </div>
-  <script src="./app.js?v=20260901-canal155-isencao"></script>
+  <script src="./app.js?v=20260901-ui2"></script>
 </body>
 </html>
