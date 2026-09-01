@@ -24,7 +24,7 @@ const atualizarTodos=$('atualizarTodos');
 const statusMessage=$('statusMessage');
 const statusTbody=$('statusTbody');
 
-const channels=[
+let channels=[
 [99,'Vai de bolsa - Marketplace'],[97,'Digdu - Marketplace'],[96,'Vou de bolsa - Marketplace'],
 [94,'Amigo edu - Marketplace'],[98,'Quero bolsa - Marketplace'],[95,'Educa mais brasil - Marketplace'],
 [127,'Casa do Universitário - Marketplace'],[113,'Edupass - Marketplace'],[114,'Neora - Marketplace'],
@@ -35,7 +35,31 @@ const channels=[
 [160,'Conect Car - Marketplace'],[162,'Omverso - Marketplace']
 ];
 
-canal.innerHTML=channels.map(x=>'<option value="'+x[0]+'">'+x[1]+' — '+x[0]+'</option>').join('');
+function populateChannels(){
+  const current=canal.value;
+  canal.innerHTML=channels
+    .slice()
+    .sort((a,b)=>String(a[1]).localeCompare(String(b[1]),'pt-BR'))
+    .map(x=>'<option value="'+x[0]+'">'+x[1]+' — '+x[0]+'</option>')
+    .join('');
+  if(current && channels.some(x=>String(x[0])===String(current))) canal.value=current;
+}
+
+async function loadChannels(){
+  populateChannels();
+  try{
+    const res=await fetch(processUrl,{method:'GET',cache:'no-store'});
+    const data=await res.json();
+    if(Array.isArray(data.channels) && data.channels.length){
+      channels=data.channels.map(x=>[Number(x.id),String(x.name)]);
+      populateChannels();
+    }
+  }catch(err){
+    console.warn('Usando lista local de canais:',err);
+  }
+}
+
+loadChannels();
 
 const required=[
 'cpf','nome','rg','anoConclusaoEnsinoMedio','sexo','celular','dataNascimento','email',
