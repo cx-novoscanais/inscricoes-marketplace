@@ -340,7 +340,7 @@ atualizarTodos.onclick=async()=>{
   const key=getOperatorKey();
   if(!key) return alert('Digite a chave de operação.');
 
-  const pending=trackingRows.filter(x=>!isFinalWithQuote(x));
+  const pending=trackingRows.filter(needsStatusRefresh);
   if(!pending.length){
     showStatusMessage('Não há inscrições pendentes para atualizar.');
     return;
@@ -609,6 +609,13 @@ function isFinalWithQuote(item){
   return status==='SUCCESS'&&Boolean(item?.quoteReady);
 }
 
+function needsStatusRefresh(item){
+  const status=String(item?.status||'').toUpperCase();
+  const isError=['ERROR','FAILED','FAILURE','CANCELLED','CANCELED'].includes(status);
+  if(isError && !errorSummary(item?.errorDetails)) return true;
+  return !isFinalWithQuote(item);
+}
+
 function showStatusMessage(message,isError=false){
   statusMessage.textContent=message;
   statusMessage.classList.remove('hidden');
@@ -663,7 +670,7 @@ function esc(v){
 
 setInterval(async()=>{
   if(document.visibilityState!=='visible'||refreshInProgress||!getOperatorKey()) return;
-  const pending=trackingRows.filter(x=>!isFinalWithQuote(x));
+  const pending=trackingRows.filter(needsStatusRefresh);
   if(!pending.length) return;
 
   refreshInProgress=true;
