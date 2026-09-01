@@ -4,6 +4,7 @@ const $=id=>document.getElementById(id);
 const canal=$('canal');
 const arquivo=$('arquivo');
 const opkey=$('opkey');
+const opkeyHistory=$('opkeyHistory');
 const validar=$('validar');
 const oferta=$('oferta');
 const enviar=$('enviar');
@@ -24,42 +25,30 @@ const atualizarTodos=$('atualizarTodos');
 const statusMessage=$('statusMessage');
 const statusTbody=$('statusTbody');
 
+const histTotal=$('histTotal');
+const histSuccess=$('histSuccess');
+const histProcessing=$('histProcessing');
+const histNoQuote=$('histNoQuote');
+
+const reportTotal=$('reportTotal');
+const reportSuccess=$('reportSuccess');
+const reportProcessing=$('reportProcessing');
+const reportQuote=$('reportQuote');
+const reportChannelTbody=$('reportChannelTbody');
+const reportHealth=$('reportHealth');
+const reportUpdatedAt=$('reportUpdatedAt');
+
 let channels=[
 [99,'Vai de bolsa - Marketplace'],[97,'Digdu - Marketplace'],[96,'Vou de bolsa - Marketplace'],
 [94,'Amigo edu - Marketplace'],[98,'Quero bolsa - Marketplace'],[95,'Educa mais brasil - Marketplace'],
 [127,'Casa do Universitário - Marketplace'],[113,'Edupass - Marketplace'],[114,'Neora - Marketplace'],
 [120,'Elleve - Marketplace'],[139,'Infinity - Marketplace'],[140,'Galati - Marketplace'],
-[141,'Inovit - Marketplace'],[146,'Bolsa Convênio Empresa C/ Garantia - Marketplace'],[124,'Bolsa mais brasil - Marketplace'],[155,'Único Skill - Marketplace'],
+[141,'Inovit - Marketplace'],[146,'Bolsa Convênio Empresa C/ Garantia - Marketplace'],
+[124,'Bolsa mais brasil - Marketplace'],[155,'Único Skill - Marketplace'],
 [156,'Pravaler - Marketplace'],[157,'Faça Acontecer (SICOB) - Marketplace'],
 [158,'Ficou Fácil (Santander) - Marketplace'],[159,'Instituto FEPAF - Marketplace'],
 [160,'Conect Car - Marketplace'],[162,'Omverso - Marketplace']
 ];
-
-function populateChannels(){
-  const current=canal.value;
-  canal.innerHTML=channels
-    .slice()
-    .sort((a,b)=>String(a[1]).localeCompare(String(b[1]),'pt-BR'))
-    .map(x=>'<option value="'+x[0]+'">'+x[1]+' — '+x[0]+'</option>')
-    .join('');
-  if(current && channels.some(x=>String(x[0])===String(current))) canal.value=current;
-}
-
-async function loadChannels(){
-  populateChannels();
-  try{
-    const res=await fetch(processUrl,{method:'GET',cache:'no-store'});
-    const data=await res.json();
-    if(Array.isArray(data.channels) && data.channels.length){
-      channels=data.channels.map(x=>[Number(x.id),String(x.name)]);
-      populateChannels();
-    }
-  }catch(err){
-    console.warn('Usando lista local de canais:',err);
-  }
-}
-
-loadChannels();
 
 const required=[
 'cpf','nome','rg','anoConclusaoEnsinoMedio','sexo','celular','dataNascimento','email',
@@ -72,7 +61,78 @@ let validRows=[];
 let trackingRows=loadTracking();
 let refreshInProgress=false;
 
-renderTracking();
+init();
+
+function init(){
+  bindNavigation();
+  bindKeySync();
+  loadChannels();
+  renderTracking();
+  renderReports();
+}
+
+function bindNavigation(){
+  document.querySelectorAll('[data-view]').forEach(btn=>{
+    btn.addEventListener('click',()=>switchView(btn.dataset.view));
+  });
+
+  finalResult?.addEventListener('click',e=>{
+    if(e.target.closest('[data-go-history]')) switchView('historico');
+  });
+}
+
+function switchView(view){
+  const map={
+    nova:$('viewNova'),
+    historico:$('viewHistorico'),
+    relatorios:$('viewRelatorios')
+  };
+
+  Object.entries(map).forEach(([name,el])=>el?.classList.toggle('active',name===view));
+  document.querySelectorAll('[data-view]').forEach(btn=>{
+    btn.classList.toggle('active',btn.dataset.view===view);
+  });
+
+  if(view==='historico') renderTracking();
+  if(view==='relatorios') renderReports();
+  window.scrollTo({top:0,behavior:'smooth'});
+}
+
+function bindKeySync(){
+  const sync=(from,to)=>()=>{
+    if(to && from.value!==to.value) to.value=from.value;
+  };
+  opkey?.addEventListener('input',sync(opkey,opkeyHistory));
+  opkeyHistory?.addEventListener('input',sync(opkeyHistory,opkey));
+}
+
+function getOperatorKey(){
+  return String(opkey?.value||opkeyHistory?.value||'').trim();
+}
+
+function populateChannels(){
+  const current=canal.value;
+  canal.innerHTML=channels
+    .slice()
+    .sort((a,b)=>String(a[1]).localeCompare(String(b[1]),'pt-BR'))
+    .map(x=>'<option value="'+x[0]+'">'+esc(x[1])+' — '+x[0]+'</option>')
+    .join('');
+  if(current && channels.some(x=>String(x[0])===String(current))) canal.value=current;
+}
+
+async function loadChannels(){
+  populateChannels();
+  try{
+    const res=await fetch(processUrl,{method:'GET',cache:'no-store'});
+    const data=await res.json();
+    if(Array.isArray(data.channels)&&data.channels.length){
+      channels=data.channels.map(x=>[Number(x.id),String(x.name)]);
+      populateChannels();
+    }
+  }catch(err){
+    console.warn('Usando lista local de canais:',err);
+  }
+}
 
 validar.onclick=()=>{
   if(!arquivo.files[0]) return alert('Selecione uma planilha.');
@@ -89,9 +149,7 @@ validar.onclick=()=>{
       tbody.innerHTML=dataRows.map((r,i)=>{
         const miss=required.filter(k=>String(r[k]??'').trim()==='');
         const good=miss.length===0;
-
-        if(good) validRows.push(r);
-        else bad++;
+        if(good) validRows.push(r); else bad++;
 
         return '<tr>'+
           '<td>'+(i+2)+'</td>'+
@@ -114,7 +172,7 @@ validar.onclick=()=>{
       enviar.disabled=false;
       enviar.textContent='Descer inscrição em Produção';
 
-      if(validRows.length===1 && !statusCpf.value){
+      if(validRows.length===1&&!statusCpf.value){
         statusCpf.value=String(validRows[0].cpf||'');
       }
 
@@ -131,44 +189,37 @@ validar.onclick=()=>{
 
 oferta.onclick=async()=>{
   if(validRows.length!==1) return;
-  if(!opkey.value) return alert('Digite a chave de operação.');
+  const key=getOperatorKey();
+  if(!key) return alert('Digite a chave de operação.');
 
   oferta.disabled=true;
   oferta.textContent='Consultando DMH...';
 
   try{
-    const r=await callApi('preview',validRows[0],opkey.value);
-    const profile=r.credentialProfile==='GLOBAL'
-      ? 'Credencial padrão da API'
-      : 'Credencial específica do canal';
-
+    const r=await callApi('preview',validRows[0],key);
     const p=r.offer?.paymentOptions||{};
     const f=r.offer?.financial||{};
-
     const is155=Number(r.channel?.id||canal.value)===155;
     const exemption=r.priceValidation?.channel155FullExemption;
 
     dmhResult.innerHTML=
-      '<p><b>Curso:</b> '+esc(r.offer?.name||'')+'</p>'+
-      '<p><b>idDMH:</b> '+esc(r.offer?.idDMH||'')+'</p>'+
-      '<p><b>Canal:</b> '+esc((r.channel?.name||'')+' — '+String(r.channel?.id||canal.value))+'</p>'+
-      '<p><b>Tabela do canal:</b> <span class="ok">CONFIRMADA NO DMH</span></p>'+
-      '<p><b>Oferta financeira:</b> <span class="ok">CONFIRMADA</span> — ID '+esc(f.id||'')+'</p>'+
+      '<div class="offer-summary">'+
+        '<div><span>Curso</span><strong>'+esc(r.offer?.name||'')+'</strong></div>'+
+        '<div><span>Canal</span><strong>'+esc((r.channel?.name||'')+' — '+String(r.channel?.id||canal.value))+'</strong></div>'+
+        '<div><span>idDMH</span><strong>'+esc(r.offer?.idDMH||'')+'</strong></div>'+
+        '<div><span>Oferta financeira</span><strong>'+esc(f.id||'Confirmada')+'</strong></div>'+
+      '</div>'+
+      '<div class="offer-summary">'+
+        '<div><span>Preço base</span><strong>'+money(p.baseValue??f.baseValue)+'</strong></div>'+
+        '<div><span>Preço da oferta</span><strong>'+money(p.offerValue??f.offerValue)+'</strong></div>'+
+        '<div><span>Valor de matrícula</span><strong>'+money(p.enrollmentValue??f.enrollmentValue)+'</strong></div>'+
+        '<div><span>Agenda</span><strong>'+esc(JSON.stringify(r.offer?.scheduleList||[]))+'</strong></div>'+
+      '</div>'+
       (is155
-        ? '<div class="success"><b>Regra do canal 155 confirmada.</b><br>'+
-          'Bolsa de isenção: 100%<br>'+
-          'Todas as parcelas: ISENTAS<br>'+
-          'Até o fim do curso: '+(exemption?.untilEndProgram?'SIM':'NÃO')+
-          (exemption?.scholarshipDescription?'<br>Bolsa DMH: '+esc(exemption.scholarshipDescription):'')+
+        ? '<div class="validation-box"><b>Regra financeira do canal 155 validada.</b> Bolsa de isenção de 100%, válida até o fim do curso, com todas as parcelas isentas.'+
+          (exemption?.scholarshipDescription?' Bolsa DMH: '+esc(exemption.scholarshipDescription)+'.':'')+
           '</div>'
-        : '')+
-      '<p><b>Preço base:</b> '+money(p.baseValue ?? f.baseValue)+'</p>'+
-      '<p><b>Preço da oferta:</b> '+money(p.offerValue ?? f.offerValue)+'</p>'+
-      '<p><b>Valor de matrícula:</b> '+money(p.enrollmentValue ?? f.enrollmentValue)+'</p>'+
-      '<p><b>scheduleList:</b> '+esc(JSON.stringify(r.offer?.scheduleList||[]))+'</p>'+
-      '<p class="muted"><b>Validação:</b> a oferta só é liberada para envio quando o canal selecionado está vinculado ao idDMH e existe oferta financeira correspondente.'+
-      (is155?' Para o canal 155, também é obrigatório existir bolsa percentual de 100% até o fim do curso e todas as parcelas com valor líquido zero.':'')+
-      '</p>';
+        : '<div class="validation-box"><b>Tabela do canal confirmada.</b> O canal selecionado está vinculado ao idDMH e a oferta financeira correspondente foi localizada.</div>');
 
     dmhBox.classList.remove('hidden');
     enviar.disabled=false;
@@ -182,16 +233,17 @@ oferta.onclick=async()=>{
 };
 
 enviar.onclick=async()=>{
-  if(!opkey.value) return alert('Digite a chave de operação.');
+  const key=getOperatorKey();
+  if(!key) return alert('Digite a chave de operação.');
   if(validRows.length!==1) return alert('Valide uma única inscrição antes de enviar.');
   if(!confirm('CONFIRMA a criação de 1 inscrição REAL em PRODUÇÃO no canal selecionado?')) return;
 
   let accepted=false;
   enviar.disabled=true;
-  enviar.textContent='Enviando e acompanhando processamento...';
+  enviar.textContent='Enviando inscrição...';
 
   try{
-    const r=await callApi('submit',validRows[0],opkey.value);
+    const r=await callApi('submit',validRows[0],key);
     finalBox.classList.remove('hidden');
 
     const id=String(r.created?.id||r.created?.inscricao?.id||r.created?.idOrigem||'');
@@ -209,7 +261,7 @@ enviar.onclick=async()=>{
         nome:track.nome||String(validRows[0].nome||''),
         canalId:track.canalId||Number(canal.value),
         canalNome:track.canalNome||channelName(Number(canal.value)),
-        curso:track.curso||'',
+        curso:track.curso||r.offer?.name||'',
         businessKeyOferta:track.businessKeyOferta||String(validRows[0].businessKeyOferta||''),
         status,
         finished,
@@ -227,32 +279,28 @@ enviar.onclick=async()=>{
     if(readyForNextStep){
       finalResult.innerHTML=
         '<div class="success"><b>Inscrição concluída e cotação gerada.</b><br>'+
-        'ID: '+esc(id)+'<br>'+
-        'Canal: '+esc((r.channel?.name||'')+' — '+String(r.channel?.id||''))+'<br>'+
-        'Status de processamento: SUCCESS<br>'+
-        'Cotação: GERADA'+quoteSummary(r.processing?.quote)+'</div>';
-    }else if(status==='SUCCESS' && !quoteReady){
+        'ID: '+esc(id)+' • Status: SUCCESS'+quoteSummary(r.processing?.quote)+'</div>'+
+        historyButton();
+    }else if(status==='SUCCESS'&&!quoteReady){
       finalResult.innerHTML=
         '<div class="warn"><b>Inscrição concluída, mas a cotação ainda não apareceu.</b><br>'+
-        'ID: '+esc(id)+'<br>'+
-        'Status: SUCCESS<br>'+
-        'Não faça a próxima etapa ainda. Use o acompanhamento abaixo até a cotação ficar como GERADA.</div>';
+        'ID: '+esc(id)+'. Acompanhe no Histórico antes de seguir para a próxima etapa.</div>'+
+        historyButton();
     }else if(finished){
       finalResult.innerHTML=
         '<div class="error"><b>A inscrição foi recebida, mas o processamento terminou com erro.</b><br>'+
-        'ID: '+esc(id)+'<br>'+
-        'Status: '+esc(status)+'</div>';
+        'ID: '+esc(id)+' • Status: '+esc(status)+'</div>'+
+        historyButton();
     }else{
       finalResult.innerHTML=
-        '<div class="warn"><b>Inscrição enviada e ainda em processamento.</b><br>'+
-        'ID: '+esc(id)+'<br>'+
-        'Status atual: '+esc(status)+'<br>'+
-        'Ela já foi adicionada ao painel de acompanhamento abaixo. Não envie novamente.</div>';
+        '<div class="warn"><b>Inscrição enviada e em processamento.</b><br>'+
+        'ID: '+esc(id)+'. Não envie novamente; acompanhe a evolução pelo Histórico.</div>'+
+        historyButton();
     }
 
     raw.textContent=JSON.stringify(r,null,2);
     renderTracking();
-    document.getElementById('trackingBox')?.scrollIntoView({behavior:'smooth',block:'start'});
+    renderReports();
   }catch(err){
     finalBox.classList.remove('hidden');
     finalResult.innerHTML='<div class="error"><b>Falha:</b> '+esc(err.message)+'</div>';
@@ -260,7 +308,7 @@ enviar.onclick=async()=>{
   }finally{
     if(accepted){
       enviar.disabled=true;
-      enviar.textContent='Inscrição enviada — acompanhe o status';
+      enviar.textContent='Inscrição enviada';
     }else{
       enviar.disabled=false;
       enviar.textContent='Descer inscrição em Produção';
@@ -268,21 +316,27 @@ enviar.onclick=async()=>{
   }
 };
 
+function historyButton(){
+  return '<div class="actions"><button class="btn btn-secondary" data-go-history>Acompanhar no Histórico</button></div>';
+}
+
 consultarStatus.onclick=async()=>{
   const id=String(statusId.value||'').trim();
   const cpf=String(statusCpf.value||'').trim();
+  const key=getOperatorKey();
 
-  if(!opkey.value) return alert('Digite a chave de operação no campo acima.');
+  if(!key) return alert('Digite a chave de operação.');
   if(!id) return alert('Informe o ID da inscrição.');
-  if(!cpf) return alert('Informe também o CPF para tornar a consulta mais confiável.');
+  if(!cpf) return alert('Informe também o CPF.');
 
   await refreshOne(id,cpf,true);
 };
 
 atualizarTodos.onclick=async()=>{
-  if(!opkey.value) return alert('Digite a chave de operação no campo acima.');
+  const key=getOperatorKey();
+  if(!key) return alert('Digite a chave de operação.');
 
-  const pending=trackingRows.filter(x=>!isFinalStatus(x.status));
+  const pending=trackingRows.filter(x=>!isFinalWithQuote(x));
   if(!pending.length){
     showStatusMessage('Não há inscrições pendentes para atualizar.');
     return;
@@ -292,9 +346,7 @@ atualizarTodos.onclick=async()=>{
   atualizarTodos.textContent='Atualizando...';
 
   try{
-    for(const item of pending){
-      await refreshOne(item.id,item.cpf,false);
-    }
+    for(const item of pending) await refreshOne(item.id,item.cpf,false);
     showStatusMessage('Atualização concluída para '+pending.length+' inscrição(ões).');
   }finally{
     atualizarTodos.disabled=false;
@@ -305,7 +357,8 @@ atualizarTodos.onclick=async()=>{
 statusTbody.addEventListener('click',async e=>{
   const btn=e.target.closest('[data-status-id]');
   if(!btn) return;
-  if(!opkey.value) return alert('Digite a chave de operação no campo acima.');
+  const key=getOperatorKey();
+  if(!key) return alert('Digite a chave de operação.');
 
   const id=btn.getAttribute('data-status-id');
   const item=trackingRows.find(x=>String(x.id)===String(id));
@@ -323,7 +376,7 @@ statusTbody.addEventListener('click',async e=>{
 
 async function refreshOne(id,cpf,showMessage){
   try{
-    const r=await callApi('status',null,opkey.value,{enrollmentId:String(id),cpf:String(cpf||'')});
+    const r=await callApi('status',null,getOperatorKey(),{enrollmentId:String(id),cpf:String(cpf||'')});
     const status=String(r.processing?.status||'PROCESSING').toUpperCase();
     const data=r.processing?.data||null;
     const info=extractInfo(data);
@@ -346,16 +399,17 @@ async function refreshOne(id,cpf,showMessage){
     });
 
     renderTracking();
+    renderReports();
 
     if(showMessage){
       if(readyForNextStep){
-        showStatusMessage('Inscrição '+id+' concluída com SUCCESS e cotação GERADA. Pronta para a próxima etapa.');
-      }else if(status==='SUCCESS' && !quoteReady){
-        showStatusMessage('Inscrição '+id+' está SUCCESS, mas ainda SEM COTAÇÃO. Não avance para a próxima etapa.');
+        showStatusMessage('Inscrição '+id+' concluída com SUCCESS e cotação gerada.');
+      }else if(status==='SUCCESS'&&!quoteReady){
+        showStatusMessage('Inscrição '+id+' está SUCCESS, mas ainda sem cotação.');
       }else if(isFinalStatus(status)){
         showStatusMessage('Inscrição '+id+' finalizada com status '+status+'.');
       }else{
-        showStatusMessage('Inscrição '+id+' continua em '+status+'. O sistema seguirá permitindo novas consultas sem reenviar a inscrição.');
+        showStatusMessage('Inscrição '+id+' continua em '+status+'.');
       }
     }
 
@@ -411,13 +465,23 @@ function loadTracking(){
 }
 
 function renderTracking(){
+  const success=trackingRows.filter(x=>String(x.status).toUpperCase()==='SUCCESS').length;
+  const processing=trackingRows.filter(x=>!isFinalStatus(x.status)).length;
+  const noQuote=trackingRows.filter(x=>String(x.status).toUpperCase()==='SUCCESS'&&!x.quoteReady).length;
+
+  histTotal.textContent=trackingRows.length;
+  histSuccess.textContent=success;
+  histProcessing.textContent=processing;
+  histNoQuote.textContent=noQuote;
+
   if(!trackingRows.length){
-    statusTbody.innerHTML='<tr><td colspan="8" class="muted">Nenhuma inscrição acompanhada neste navegador. Você pode informar um ID e CPF acima para consultar uma inscrição já existente.</td></tr>';
+    statusTbody.innerHTML='<tr><td colspan="8" class="muted">Nenhuma inscrição acompanhada neste navegador.</td></tr>';
     return;
   }
 
   statusTbody.innerHTML=trackingRows.map(item=>{
     const status=String(item.status||'PROCESSING').toUpperCase();
+
     return '<tr>'+
       '<td class="nowrap"><b>'+esc(item.id)+'</b></td>'+
       '<td class="nowrap">'+esc(item.cpf||'')+'</td>'+
@@ -426,9 +490,49 @@ function renderTracking(){
       '<td>'+esc(item.curso||'')+'</td>'+
       '<td>'+statusBadge(status)+'<br>'+quoteBadge(item.quoteReady,item.status)+'</td>'+
       '<td class="nowrap">'+esc(formatDateTime(item.checkedAt||item.createdAt))+'</td>'+
-      '<td><button class="mini-btn secondary" data-status-id="'+esc(item.id)+'">Consultar</button></td>'+
+      '<td><button class="mini-btn" data-status-id="'+esc(item.id)+'">Consultar</button></td>'+
     '</tr>';
   }).join('');
+}
+
+function renderReports(){
+  const totalCount=trackingRows.length;
+  const successCount=trackingRows.filter(x=>String(x.status).toUpperCase()==='SUCCESS').length;
+  const processingCount=trackingRows.filter(x=>!isFinalStatus(x.status)).length;
+  const quoteCount=trackingRows.filter(x=>x.quoteReady).length;
+  const noQuoteCount=trackingRows.filter(x=>String(x.status).toUpperCase()==='SUCCESS'&&!x.quoteReady).length;
+  const errorCount=trackingRows.filter(x=>['ERROR','FAILED','FAILURE','CANCELLED','CANCELED'].includes(String(x.status).toUpperCase())).length;
+
+  reportTotal.textContent=totalCount;
+  reportSuccess.textContent=successCount;
+  reportProcessing.textContent=processingCount;
+  reportQuote.textContent=quoteCount;
+  reportUpdatedAt.textContent='Atualizado em '+new Date().toLocaleString('pt-BR');
+
+  const byChannel={};
+  trackingRows.forEach(item=>{
+    const name=item.canalNome||channelName(Number(item.canalId))||('Canal '+(item.canalId||'—'));
+    if(!byChannel[name]) byChannel[name]={total:0,success:0,processing:0,quote:0};
+    byChannel[name].total++;
+    if(String(item.status).toUpperCase()==='SUCCESS') byChannel[name].success++;
+    if(!isFinalStatus(item.status)) byChannel[name].processing++;
+    if(item.quoteReady) byChannel[name].quote++;
+  });
+
+  const rows=Object.entries(byChannel).sort((a,b)=>b[1].total-a[1].total);
+  reportChannelTbody.innerHTML=rows.length
+    ? rows.map(([name,v])=>'<tr><td>'+esc(name)+'</td><td>'+v.total+'</td><td>'+v.success+'</td><td>'+v.processing+'</td><td>'+v.quote+'</td></tr>').join('')
+    : '<tr><td colspan="5" class="muted">Sem dados para exibir.</td></tr>';
+
+  reportHealth.innerHTML=
+    healthItem('Inscrições em processamento',processingCount,processingCount?'warn':'ok')+
+    healthItem('SUCCESS sem cotação',noQuoteCount,noQuoteCount?'bad':'ok')+
+    healthItem('Erros de processamento',errorCount,errorCount?'bad':'ok')+
+    healthItem('Cotações geradas',quoteCount,'ok');
+}
+
+function healthItem(label,value,tone){
+  return '<div class="health-item"><span>'+esc(label)+'</span><strong class="health-'+tone+'">'+value+'</strong></div>';
 }
 
 function quoteBadge(quoteReady,status){
@@ -439,7 +543,7 @@ function quoteBadge(quoteReady,status){
 }
 
 function quoteSummary(quote){
-  if(!quote || typeof quote!=='object') return '';
+  if(!quote||typeof quote!=='object') return '';
   const parts=[];
   if(quote.orderReference) parts.push('Ref.: '+esc(quote.orderReference));
   if(quote.tipoSimulacao) parts.push('Tipo: '+esc(quote.tipoSimulacao));
@@ -459,7 +563,6 @@ function statusBadge(status){
   if(s==='SUCCESS') cls='status-success';
   else if(['PROCESSING','PENDING','IN_PROCESS','INPROCESS'].includes(s)) cls='status-processing';
   else if(isFinalStatus(s)) cls='status-error';
-
   return '<span class="status-pill '+cls+'">'+esc(s||'SEM STATUS')+'</span>';
 }
 
@@ -467,12 +570,18 @@ function isFinalStatus(status){
   return ['SUCCESS','ERROR','FAILED','FAILURE','CANCELLED','CANCELED'].includes(String(status||'').toUpperCase());
 }
 
+function isFinalWithQuote(item){
+  const status=String(item?.status||'').toUpperCase();
+  if(['ERROR','FAILED','FAILURE','CANCELLED','CANCELED'].includes(status)) return true;
+  return status==='SUCCESS'&&Boolean(item?.quoteReady);
+}
+
 function showStatusMessage(message,isError=false){
   statusMessage.textContent=message;
   statusMessage.classList.remove('hidden');
-  statusMessage.style.borderColor=isError?'#fecdca':'#d7e3f3';
-  statusMessage.style.background=isError?'#fef3f2':'#f8fbff';
-  statusMessage.style.color=isError?'#b42318':'#344054';
+  statusMessage.style.borderColor=isError?'#f2cbc7':'#d8e1ea';
+  statusMessage.style.background=isError?'#fff5f4':'#f7f9fc';
+  statusMessage.style.color=isError?'#9e2018':'#344054';
 }
 
 function channelName(id){
@@ -502,12 +611,7 @@ async function callApi(action,row,key,extra={}){
 
   const responseText=await res.text();
   let j={};
-
-  try{
-    j=JSON.parse(responseText);
-  }catch{
-    j={error:responseText};
-  }
+  try{j=JSON.parse(responseText)}catch{j={error:responseText}}
 
   if(!res.ok||j.ok===false||j.error){
     const err=new Error(j.error||('HTTP '+res.status));
@@ -520,24 +624,19 @@ async function callApi(action,row,key,extra={}){
 
 function esc(v){
   return String(v??'').replace(/[&<>"']/g,m=>({
-    '&':'&amp;',
-    '<':'&lt;',
-    '>':'&gt;',
-    '"':'&quot;',
-    "'":'&#39;'
+    '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
   }[m]));
 }
 
 setInterval(async()=>{
-  if(document.visibilityState!=='visible'||refreshInProgress||!opkey.value) return;
-
-  const pending=trackingRows.filter(x=>!isFinalStatus(x.status));
+  if(document.visibilityState!=='visible'||refreshInProgress||!getOperatorKey()) return;
+  const pending=trackingRows.filter(x=>!isFinalWithQuote(x));
   if(!pending.length) return;
 
   refreshInProgress=true;
   try{
     for(const item of pending.slice(0,10)){
-      try{ await refreshOne(item.id,item.cpf,false); }catch{}
+      try{await refreshOne(item.id,item.cpf,false)}catch{}
     }
   }finally{
     refreshInProgress=false;
