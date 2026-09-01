@@ -142,12 +142,20 @@ oferta.onclick=async()=>{
       ? 'Credencial padrão da API'
       : 'Credencial específica do canal';
 
+    const p=r.offer?.paymentOptions||{};
+    const f=r.offer?.financial||{};
+
     dmhResult.innerHTML=
       '<p><b>Curso:</b> '+esc(r.offer?.name||'')+'</p>'+
       '<p><b>idDMH:</b> '+esc(r.offer?.idDMH||'')+'</p>'+
       '<p><b>Canal:</b> '+esc((r.channel?.name||'')+' — '+String(r.channel?.id||canal.value))+'</p>'+
-      '<p><b>Autenticação:</b> '+esc(profile)+'</p>'+
-      '<p><b>scheduleList:</b> '+esc(JSON.stringify(r.offer?.scheduleList||[]))+'</p>';
+      '<p><b>Tabela do canal:</b> <span class="ok">CONFIRMADA NO DMH</span></p>'+
+      '<p><b>Oferta financeira:</b> <span class="ok">CONFIRMADA</span> — ID '+esc(f.id||'')+'</p>'+
+      '<p><b>Preço base:</b> '+money(p.baseValue ?? f.baseValue)+'</p>'+
+      '<p><b>Preço da oferta:</b> '+money(p.offerValue ?? f.offerValue)+'</p>'+
+      '<p><b>Valor de matrícula:</b> '+money(p.enrollmentValue ?? f.enrollmentValue)+'</p>'+
+      '<p><b>scheduleList:</b> '+esc(JSON.stringify(r.offer?.scheduleList||[]))+'</p>'+
+      '<p class="muted"><b>Validação:</b> a oferta só é liberada para envio quando o canal selecionado está vinculado ao idDMH e existe oferta financeira correspondente.</p>';
 
     dmhBox.classList.remove('hidden');
     enviar.disabled=false;
@@ -176,6 +184,8 @@ enviar.onclick=async()=>{
     const id=String(r.created?.id||r.created?.inscricao?.id||r.created?.idOrigem||'');
     const status=String(r.processing?.status||'PROCESSING').toUpperCase();
     const finished=Boolean(r.processing?.finished);
+    const quoteReady=Boolean(r.processing?.quoteReady);
+    const readyForNextStep=Boolean(r.processing?.readyForNextStep);
     accepted=Boolean(id);
 
     if(id){
@@ -190,6 +200,9 @@ enviar.onclick=async()=>{
         businessKeyOferta:track.businessKeyOferta||String(validRows[0].businessKeyOferta||''),
         status,
         finished,
+        quoteReady,
+        readyForNextStep,
+        quote:r.processing?.quote||null,
         createdAt:track.createdAt||new Date().toISOString(),
         checkedAt:new Date().toISOString()
       });
@@ -198,12 +211,19 @@ enviar.onclick=async()=>{
       statusCpf.value=track.cpf||String(validRows[0].cpf||'');
     }
 
-    if(status==='SUCCESS'){
+    if(readyForNextStep){
       finalResult.innerHTML=
-        '<div class="success"><b>Inscrição concluída com sucesso.</b><br>'+
+        '<div class="success"><b>Inscrição concluída e cotação gerada.</b><br>'+
         'ID: '+esc(id)+'<br>'+
         'Canal: '+esc((r.channel?.name||'')+' — '+String(r.channel?.id||''))+'<br>'+
-        'Status de processamento: SUCCESS</div>';
+        'Status de processamento: SUCCESS<br>'+
+        'Cotação: GERADA'+quoteSummary(r.processing?.quote)+'</div>';
+    }else if(status==='SUCCESS' && !quoteReady){
+      finalResult.innerHTML=
+        '<div class="warn"><b>Inscrição concluída, mas a cotação ainda não apareceu.</b><br>'+
+        'ID: '+esc(id)+'<br>'+
+        'Status: SUCCESS<br>'+
+        'Não faça a próxima etapa ainda. Use o acompanhamento abaixo até a cotação ficar como GERADA.</div>';
     }else if(finished){
       finalResult.innerHTML=
         '<div class="error"><b>A inscrição foi recebida, mas o processamento terminou com erro.</b><br>'+
@@ -294,6 +314,8 @@ async function refreshOne(id,cpf,showMessage){
     const status=String(r.processing?.status||'PROCESSING').toUpperCase();
     const data=r.processing?.data||null;
     const info=extractInfo(data);
+    const quoteReady=Boolean(r.processing?.quoteReady);
+    const readyForNextStep=Boolean(r.processing?.readyForNextStep);
 
     upsertTracking({
       id:String(id),
@@ -304,14 +326,19 @@ async function refreshOne(id,cpf,showMessage){
       curso:info.curso||'',
       status,
       finished:Boolean(r.processing?.finished),
+      quoteReady,
+      readyForNextStep,
+      quote:r.processing?.quote||null,
       checkedAt:r.checkedAt||new Date().toISOString()
     });
 
     renderTracking();
 
     if(showMessage){
-      if(status==='SUCCESS'){
-        showStatusMessage('Inscrição '+id+' concluída com SUCCESS.');
+      if(readyForNextStep){
+        showStatusMessage('Inscrição '+id+' concluída com SUCCESS e cotação GERADA. Pronta para a próxima etapa.');
+      }else if(status==='SUCCESS' && !quoteReady){
+        showStatusMessage('Inscrição '+id+' está SUCCESS, mas ainda SEM COTAÇÃO. Não avance para a próxima etapa.');
       }else if(isFinalStatus(status)){
         showStatusMessage('Inscrição '+id+' finalizada com status '+status+'.');
       }else{
@@ -384,11 +411,33 @@ function renderTracking(){
       '<td>'+esc(item.nome||'')+'</td>'+
       '<td>'+esc(item.canalNome||item.canalId||'')+'</td>'+
       '<td>'+esc(item.curso||'')+'</td>'+
-      '<td>'+statusBadge(status)+'</td>'+
+      '<td>'+statusBadge(status)+'<br>'+quoteBadge(item.quoteReady,item.status)+'</td>'+
       '<td class="nowrap">'+esc(formatDateTime(item.checkedAt||item.createdAt))+'</td>'+
       '<td><button class="mini-btn secondary" data-status-id="'+esc(item.id)+'">Consultar</button></td>'+
     '</tr>';
   }).join('');
+}
+
+function quoteBadge(quoteReady,status){
+  const s=String(status||'').toUpperCase();
+  if(quoteReady) return '<span class="status-pill status-success">COTAÇÃO GERADA</span>';
+  if(s==='SUCCESS') return '<span class="status-pill status-error">SEM COTAÇÃO</span>';
+  return '<span class="status-pill status-unknown">COTAÇÃO PENDENTE</span>';
+}
+
+function quoteSummary(quote){
+  if(!quote || typeof quote!=='object') return '';
+  const parts=[];
+  if(quote.orderReference) parts.push('Ref.: '+esc(quote.orderReference));
+  if(quote.tipoSimulacao) parts.push('Tipo: '+esc(quote.tipoSimulacao));
+  if(quote.dataGeracao) parts.push('Gerada em: '+esc(quote.dataGeracao));
+  return parts.length?'<br>'+parts.join(' • '):'';
+}
+
+function money(v){
+  const n=Number(v);
+  if(!Number.isFinite(n)) return '—';
+  return n.toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
 }
 
 function statusBadge(status){
