@@ -251,6 +251,8 @@ enviar.onclick=async()=>{
     const finished=Boolean(r.processing?.finished);
     const quoteReady=Boolean(r.processing?.quoteReady);
     const readyForNextStep=Boolean(r.processing?.readyForNextStep);
+    const errorDetails=r.processing?.errorDetails||null;
+    const errorDetails=r.processing?.errorDetails||null;
     accepted=Boolean(id);
 
     if(id){
@@ -268,6 +270,7 @@ enviar.onclick=async()=>{
         quoteReady,
         readyForNextStep,
         quote:r.processing?.quote||null,
+        errorDetails,
         createdAt:track.createdAt||new Date().toISOString(),
         checkedAt:new Date().toISOString()
       });
@@ -289,7 +292,9 @@ enviar.onclick=async()=>{
     }else if(finished){
       finalResult.innerHTML=
         '<div class="error"><b>A inscrição foi recebida, mas o processamento terminou com erro.</b><br>'+
-        'ID: '+esc(id)+' • Status: '+esc(status)+'</div>'+
+        'ID: '+esc(id)+' • Status: '+esc(status)+
+        errorDetailsHtml(errorDetails)+
+        '</div>'+
         historyButton();
     }else{
       finalResult.innerHTML=
@@ -395,6 +400,7 @@ async function refreshOne(id,cpf,showMessage){
       quoteReady,
       readyForNextStep,
       quote:r.processing?.quote||null,
+      errorDetails,
       checkedAt:r.checkedAt||new Date().toISOString()
     });
 
@@ -407,7 +413,8 @@ async function refreshOne(id,cpf,showMessage){
       }else if(status==='SUCCESS'&&!quoteReady){
         showStatusMessage('Inscrição '+id+' está SUCCESS, mas ainda sem cotação.');
       }else if(isFinalStatus(status)){
-        showStatusMessage('Inscrição '+id+' finalizada com status '+status+'.');
+        const reason=errorSummary(errorDetails);
+        showStatusMessage('Inscrição '+id+' finalizada com status '+status+'.'+(reason?' Motivo: '+reason:''),true);
       }else{
         showStatusMessage('Inscrição '+id+' continua em '+status+'.');
       }
@@ -488,7 +495,7 @@ function renderTracking(){
       '<td>'+esc(item.nome||'')+'</td>'+
       '<td>'+esc(item.canalNome||item.canalId||'')+'</td>'+
       '<td>'+esc(item.curso||'')+'</td>'+
-      '<td>'+statusBadge(status)+'<br>'+quoteBadge(item.quoteReady,item.status)+'</td>'+
+      '<td>'+statusBadge(status)+'<br>'+quoteBadge(item.quoteReady,item.status)+errorReasonCell(item)+'</td>'+
       '<td class="nowrap">'+esc(formatDateTime(item.checkedAt||item.createdAt))+'</td>'+
       '<td><button class="mini-btn" data-status-id="'+esc(item.id)+'">Consultar</button></td>'+
     '</tr>';
@@ -529,6 +536,32 @@ function renderReports(){
     healthItem('SUCCESS sem cotação',noQuoteCount,noQuoteCount?'bad':'ok')+
     healthItem('Erros de processamento',errorCount,errorCount?'bad':'ok')+
     healthItem('Cotações geradas',quoteCount,'ok');
+}
+
+function errorSummary(details){
+  if(!details) return '';
+  return String(details.summary||details.message||details.detail||details.code||'').trim();
+}
+
+function errorDetailsHtml(details){
+  const summary=errorSummary(details);
+  if(!summary) return '<br><b>Motivo:</b> não informado pela API.';
+  let html='<br><b>Motivo:</b> '+esc(summary);
+  if(details?.code && String(details.code)!==summary){
+    html+='<br><b>Código:</b> '+esc(details.code);
+  }
+  if(details?.detail && String(details.detail)!==summary){
+    html+='<br><b>Detalhe:</b> '+esc(details.detail);
+  }
+  return html;
+}
+
+function errorReasonCell(item){
+  const status=String(item?.status||'').toUpperCase();
+  if(!['ERROR','FAILED','FAILURE','CANCELLED','CANCELED'].includes(status)) return '';
+  const summary=errorSummary(item?.errorDetails);
+  const text=summary||'Motivo não informado pela API';
+  return '<div class="error-reason" title="'+esc(text)+'"><b>Motivo:</b> '+esc(text)+'</div>';
 }
 
 function healthItem(label,value,tone){
