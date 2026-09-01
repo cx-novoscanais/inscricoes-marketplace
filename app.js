@@ -29,7 +29,7 @@ const channels=[
 [94,'Amigo edu - Marketplace'],[98,'Quero bolsa - Marketplace'],[95,'Educa mais brasil - Marketplace'],
 [127,'Casa do Universitário - Marketplace'],[113,'Edupass - Marketplace'],[114,'Neora - Marketplace'],
 [120,'Elleve - Marketplace'],[139,'Infinity - Marketplace'],[140,'Galati - Marketplace'],
-[141,'Inovit - Marketplace'],[124,'Bolsa mais brasil - Marketplace'],[155,'Único Skill - Marketplace'],
+[141,'Inovit - Marketplace'],[146,'Bolsa Convênio Empresa C/ Garantia - Marketplace'],[124,'Bolsa mais brasil - Marketplace'],[155,'Único Skill - Marketplace'],
 [156,'Pravaler - Marketplace'],[157,'Faça Acontecer (SICOB) - Marketplace'],
 [158,'Ficou Fácil (Santander) - Marketplace'],[159,'Instituto FEPAF - Marketplace'],
 [160,'Conect Car - Marketplace'],[162,'Omverso - Marketplace']
