@@ -85,6 +85,45 @@
         <details><summary>Ver retorno técnico</summary><pre id="raw" class="mono"></pre></details>
       </section>
 
+      <section id="trackingBox" class="card">
+        <div class="section-title">
+          <div>
+            <h3>Acompanhamento das inscrições</h3>
+            <p class="muted">Consulte uma inscrição já enviada sem reenviar o cadastro. As inscrições desta tela ficam salvas neste navegador.</p>
+          </div>
+          <span class="live-dot">STATUS</span>
+        </div>
+
+        <div class="grid status-grid">
+          <div>
+            <label>ID da inscrição</label>
+            <input id="statusId" inputmode="numeric" placeholder="Ex.: 29898605">
+          </div>
+          <div>
+            <label>CPF do candidato</label>
+            <input id="statusCpf" placeholder="000.000.000-00">
+          </div>
+        </div>
+
+        <div class="actions">
+          <button id="consultarStatus">Consultar e adicionar</button>
+          <button id="atualizarTodos" class="secondary">Atualizar pendentes</button>
+        </div>
+        <div id="statusMessage" class="status-message hidden"></div>
+
+        <div class="table-wrap tracking-table">
+          <table>
+            <thead>
+              <tr>
+                <th>ID</th><th>CPF</th><th>Nome</th><th>Canal</th><th>Curso</th>
+                <th>Status</th><th>Última consulta</th><th>Ação</th>
+              </tr>
+            </thead>
+            <tbody id="statusTbody"></tbody>
+          </table>
+        </div>
+      </section>
+
       <div class="footer">Inscrições Marketplace • Cogna Novos Canais</div>
     </main>
   </div>
