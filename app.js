@@ -18,6 +18,15 @@ const dmhResult=$('dmhResult');
 const finalBox=$('finalBox');
 const finalResult=$('finalResult');
 const raw=$('raw');
+const batchProgress=$('batchProgress');
+const batchProgressTitle=$('batchProgressTitle');
+const batchProgressText=$('batchProgressText');
+const batchProgressPercent=$('batchProgressPercent');
+const batchProgressBar=$('batchProgressBar');
+const batchTotal=$('batchTotal');
+const batchSuccess=$('batchSuccess');
+const batchProcessing=$('batchProcessing');
+const batchErrors=$('batchErrors');
 const statusId=$('statusId');
 const statusCpf=$('statusCpf');
 const consultarStatus=$('consultarStatus');
@@ -57,7 +66,11 @@ const required=[
 ];
 
 const TRACKING_KEY='marketplace_tracking_v2';
+const MAX_BATCH_SIZE=500;
+const PREVIEW_CONCURRENCY=5;
+const SUBMIT_CONCURRENCY=3;
 let validRows=[];
+let offerApprovedRows=[];
 let trackingRows=loadTracking();
 let refreshInProgress=false;
 
@@ -69,6 +82,12 @@ function init(){
   loadChannels();
   renderTracking();
   renderReports();
+  canal.addEventListener('change',()=>{
+    offerApprovedRows=[];
+    dmhBox.classList.add('hidden');
+    finalBox.classList.add('hidden');
+    enviar.disabled=true;
+  });
 }
 
 function bindNavigation(){
@@ -143,7 +162,11 @@ validar.onclick=()=>{
       const wb=XLSX.read(new Uint8Array(e.target.result),{type:'array'});
       const ws=wb.Sheets['MODELO_GRADUACAO']||wb.Sheets[wb.SheetNames[0]];
       const dataRows=XLSX.utils.sheet_to_json(ws,{defval:''});
+      if(dataRows.length>MAX_BATCH_SIZE){
+        throw new Error('A planilha possui '+dataRows.length+' linhas. O limite por carga é '+MAX_BATCH_SIZE+'.');
+      }
       validRows=[];
+      offerApprovedRows=[];
       let bad=0;
 
       tbody.innerHTML=dataRows.map((r,i)=>{
@@ -166,19 +189,18 @@ validar.onclick=()=>{
       prontos.textContent=validRows.length;
       erros.textContent=bad;
       resumo.classList.remove('hidden');
-      oferta.disabled=validRows.length!==1;
+      oferta.disabled=validRows.length===0;
       dmhBox.classList.add('hidden');
       finalBox.classList.add('hidden');
-      enviar.disabled=false;
-      enviar.textContent='Descer inscrição em Produção';
+      batchProgress.classList.add('hidden');
+      enviar.disabled=true;
+      enviar.textContent='Enviar lote em Produção';
 
       if(validRows.length===1&&!statusCpf.value){
         statusCpf.value=String(validRows[0].cpf||'');
       }
 
-      if(validRows.length>1){
-        alert('Para o primeiro teste, deixe somente 1 linha preenchida na planilha.');
-      }
+      if(!validRows.length) alert('Nenhuma linha está pronta para envio. Corrija os campos indicados.');
     }catch(err){
       alert('Erro ao ler a planilha: '+err.message);
     }
@@ -188,46 +210,46 @@ validar.onclick=()=>{
 };
 
 oferta.onclick=async()=>{
-  if(validRows.length!==1) return;
+  if(!validRows.length) return;
   const key=getOperatorKey();
   if(!key) return alert('Digite a chave de operação.');
 
   oferta.disabled=true;
-  oferta.textContent='Consultando DMH...';
+  canal.disabled=true;
+  oferta.textContent='Consultando '+validRows.length+' oferta(s)...';
 
   try{
-    const r=await callApi('preview',validRows[0],key);
-    const p=r.offer?.paymentOptions||{};
-    const f=r.offer?.financial||{};
-    const is155=Number(r.channel?.id||canal.value)===155;
-    const exemption=r.priceValidation?.channel155FullExemption;
+    showBatchProgress('Validando ofertas no DMH',validRows.length);
+    const results=await runPool(validRows,PREVIEW_CONCURRENCY,async(row,index)=>{
+      try{return {ok:true,row,response:await callApiWithRetry('preview',row,key),index};}
+      catch(error){return {ok:false,row,error,index};}
+    },progress=>updateBatchProgress(progress,validRows.length,0,progress,0));
+
+    offerApprovedRows=results.filter(x=>x.ok).map(x=>x.row);
+    const rejected=results.filter(x=>!x.ok);
+    const first=results.find(x=>x.ok)?.response||{};
+    const is155=Number(first.channel?.id||canal.value)===155;
 
     dmhResult.innerHTML=
       '<div class="offer-summary">'+
-        '<div><span>Curso</span><strong>'+esc(r.offer?.name||'')+'</strong></div>'+
-        '<div><span>Canal</span><strong>'+esc((r.channel?.name||'')+' — '+String(r.channel?.id||canal.value))+'</strong></div>'+
-        '<div><span>idDMH</span><strong>'+esc(r.offer?.idDMH||'')+'</strong></div>'+
-        '<div><span>Oferta financeira</span><strong>'+esc(f.id||'Confirmada')+'</strong></div>'+
-      '</div>'+
-      '<div class="offer-summary">'+
-        '<div><span>Preço base</span><strong>'+money(p.baseValue??f.baseValue)+'</strong></div>'+
-        '<div><span>Preço da oferta</span><strong>'+money(p.offerValue??f.offerValue)+'</strong></div>'+
-        '<div><span>Valor de matrícula</span><strong>'+money(p.enrollmentValue??f.enrollmentValue)+'</strong></div>'+
-        '<div><span>Agenda</span><strong>'+esc(JSON.stringify(r.offer?.scheduleList||[]))+'</strong></div>'+
+        '<div><span>Linhas válidas</span><strong>'+validRows.length+'</strong></div>'+
+        '<div><span>Ofertas confirmadas</span><strong>'+offerApprovedRows.length+'</strong></div>'+
+        '<div><span>Ofertas com erro</span><strong>'+rejected.length+'</strong></div>'+
+        '<div><span>Canal</span><strong>'+esc(channelName(Number(canal.value))+' — '+canal.value)+'</strong></div>'+
       '</div>'+
       (is155
-        ? '<div class="validation-box"><b>Regra financeira do canal 155 validada.</b> Bolsa de isenção de 100%, válida até o fim do curso, com todas as parcelas isentas.'+
-          (exemption?.scholarshipDescription?' Bolsa DMH: '+esc(exemption.scholarshipDescription)+'.':'')+
-          '</div>'
-        : '<div class="validation-box"><b>Tabela do canal confirmada.</b> O canal selecionado está vinculado ao idDMH e a oferta financeira correspondente foi localizada.</div>');
+        ? '<div class="validation-box"><b>Regra financeira do canal 155 validada.</b> Bolsa de isenção de 100% em todas as parcelas.</div>'
+        : '<div class="validation-box"><b>Consulta concluída.</b> Cada inscrição será enviada usando a oferta correspondente ao canal selecionado.</div>')+
+      (rejected.length?'<div class="error offer-list"><b>'+rejected.length+' linha(s) não serão enviadas:</b><br>'+rejected.slice(0,20).map(x=>'Linha '+(x.index+2)+': '+esc(x.error.message)).join('<br>')+(rejected.length>20?'<br>… e mais '+(rejected.length-20):'')+'</div>':'');
 
     dmhBox.classList.remove('hidden');
-    enviar.disabled=false;
-    enviar.textContent='Descer inscrição em Produção';
+    enviar.disabled=offerApprovedRows.length===0;
+    enviar.textContent='Enviar '+offerApprovedRows.length+' inscrição(ões) em Produção';
   }catch(err){
     alert(err.message);
   }finally{
     oferta.disabled=false;
+    canal.disabled=false;
     oferta.textContent='Consultar oferta no DMH';
   }
 };
@@ -235,82 +257,40 @@ oferta.onclick=async()=>{
 enviar.onclick=async()=>{
   const key=getOperatorKey();
   if(!key) return alert('Digite a chave de operação.');
-  if(validRows.length!==1) return alert('Valide uma única inscrição antes de enviar.');
-  if(!confirm('CONFIRMA a criação de 1 inscrição REAL em PRODUÇÃO no canal selecionado?')) return;
+  if(!offerApprovedRows.length) return alert('Consulte as ofertas da carga antes de enviar.');
+  const count=offerApprovedRows.length;
+  if(!confirm('CONFIRMA a criação de '+count+' inscrição(ões) REAIS em PRODUÇÃO no canal '+canal.value+'?')) return;
 
-  let accepted=false;
   enviar.disabled=true;
-  enviar.textContent='Enviando inscrição...';
+  oferta.disabled=true;
+  canal.disabled=true;
+  arquivo.disabled=true;
+  validar.disabled=true;
+  enviar.textContent='Processando lote...';
 
   try{
-    const r=await callApi('submit',validRows[0],key);
+    showBatchProgress('Enviando inscrições em Produção',count);
+    const results=await runPool(offerApprovedRows,SUBMIT_CONCURRENCY,async(row,index)=>{
+      try{
+        const response=await callApiWithRetry('submit',row,key);
+        saveSubmittedTracking(response,row);
+        return {ok:true,row,response,index};
+      }catch(error){return {ok:false,row,error,index};}
+    },processed=>{
+      const completed=trackingRows.filter(x=>x.batchToken===currentBatchToken).length;
+      updateBatchProgress(processed,count,completed,Math.max(0,count-processed),processed-completed);
+      renderTracking();
+      renderReports();
+    });
+
+    const succeeded=results.filter(x=>x.ok);
+    const failed=results.filter(x=>!x.ok);
     finalBox.classList.remove('hidden');
-
-    const id=String(r.created?.id||r.created?.inscricao?.id||r.created?.idOrigem||'');
-    const status=String(r.processing?.status||'PROCESSING').toUpperCase();
-    const finished=Boolean(r.processing?.finished);
-    const quoteReady=Boolean(r.processing?.quoteReady);
-    const readyForNextStep=Boolean(r.processing?.readyForNextStep);
-    const errorDetails=r.processing?.errorDetails||null;
-    const businessOutcome=r.processing?.businessOutcome||null;
-    accepted=Boolean(id);
-
-    if(id){
-      const track=r.tracking||{};
-      upsertTracking({
-        id,
-        cpf:track.cpf||String(validRows[0].cpf||''),
-        nome:track.nome||String(validRows[0].nome||''),
-        canalId:track.canalId||Number(canal.value),
-        canalNome:track.canalNome||channelName(Number(canal.value)),
-        curso:track.curso||r.offer?.name||'',
-        businessKeyOferta:track.businessKeyOferta||String(validRows[0].businessKeyOferta||''),
-        status,
-        finished,
-        quoteReady,
-        readyForNextStep,
-        quote:r.processing?.quote||null,
-        errorDetails,
-        businessOutcome,
-        createdAt:track.createdAt||new Date().toISOString(),
-        checkedAt:new Date().toISOString()
-      });
-
-      statusId.value=id;
-      statusCpf.value=track.cpf||String(validRows[0].cpf||'');
-    }
-
-    if(isMarketplaceScholarshipApplied({businessOutcome})){
-      finalResult.innerHTML=
-        '<div class="success"><b>'+esc(businessOutcome.frontendMessage||'Bolsa MarketPlace aplicada na inscrição já existente.')+'</b><br>'+
-        linkedEnrollmentLine(businessOutcome)+
-        '<br><span class="muted-inline">Retorno técnico: '+esc(businessOutcome.code||'KE-5000')+'. A nova tentativa foi inativada porque a bolsa foi vinculada à inscrição existente.</span></div>'+
-        historyButton();
-    }else if(readyForNextStep){
-      finalResult.innerHTML=
-        '<div class="success"><b>Inscrição concluída e cotação gerada.</b><br>'+
-        'ID: '+esc(id)+' • Status: SUCCESS'+quoteSummary(r.processing?.quote)+'</div>'+
-        historyButton();
-    }else if(status==='SUCCESS'&&!quoteReady){
-      finalResult.innerHTML=
-        '<div class="warn"><b>Inscrição concluída, mas a cotação ainda não apareceu.</b><br>'+
-        'ID: '+esc(id)+'. Acompanhe no Histórico antes de seguir para a próxima etapa.</div>'+
-        historyButton();
-    }else if(finished){
-      finalResult.innerHTML=
-        '<div class="error"><b>A inscrição foi recebida, mas o processamento terminou com erro.</b><br>'+
-        'ID: '+esc(id)+' • Status: '+esc(status)+
-        errorDetailsHtml(errorDetails)+
-        '</div>'+
-        historyButton();
-    }else{
-      finalResult.innerHTML=
-        '<div class="warn"><b>Inscrição enviada e em processamento.</b><br>'+
-        'ID: '+esc(id)+'. Não envie novamente; acompanhe a evolução pelo Histórico.</div>'+
-        historyButton();
-    }
-
-    raw.textContent=JSON.stringify(r,null,2);
+    finalResult.innerHTML=
+      '<div class="'+(failed.length?'warn':'success')+'"><b>Lote processado.</b><br>'+
+      succeeded.length+' inscrição(ões) aceita(s) e '+failed.length+' com falha no envio.'+
+      (failed.length?'<br>As linhas com falha podem ser corrigidas e reenviadas em uma nova planilha.':'')+'</div>'+historyButton();
+    raw.textContent=JSON.stringify(results.map(x=>x.ok?{linha:x.index+2,ok:true,response:x.response}:{linha:x.index+2,ok:false,error:x.error.message}),null,2);
     renderTracking();
     renderReports();
   }catch(err){
@@ -318,15 +298,79 @@ enviar.onclick=async()=>{
     finalResult.innerHTML='<div class="error"><b>Falha:</b> '+esc(err.message)+'</div>';
     raw.textContent=err.raw||'';
   }finally{
-    if(accepted){
-      enviar.disabled=true;
-      enviar.textContent='Inscrição enviada';
-    }else{
-      enviar.disabled=false;
-      enviar.textContent='Descer inscrição em Produção';
-    }
+    enviar.disabled=true;
+    oferta.disabled=false;
+    canal.disabled=false;
+    arquivo.disabled=false;
+    validar.disabled=false;
+    enviar.textContent='Lote enviado';
   }
 };
+
+let currentBatchToken='';
+
+function saveSubmittedTracking(r,row){
+  const id=String(r.created?.id||r.created?.inscricao?.id||r.created?.idOrigem||'');
+  if(!id) return;
+  const track=r.tracking||{};
+  upsertTracking({
+    id,cpf:track.cpf||String(row.cpf||''),nome:track.nome||String(row.nome||''),
+    canalId:track.canalId||Number(canal.value),canalNome:track.canalNome||channelName(Number(canal.value)),
+    curso:track.curso||r.offer?.name||'',businessKeyOferta:track.businessKeyOferta||String(row.businessKeyOferta||''),
+    status:String(r.processing?.status||'PROCESSING').toUpperCase(),finished:Boolean(r.processing?.finished),
+    quoteReady:Boolean(r.processing?.quoteReady),readyForNextStep:Boolean(r.processing?.readyForNextStep),
+    quote:r.processing?.quote||null,errorDetails:r.processing?.errorDetails||null,
+    businessOutcome:r.processing?.businessOutcome||null,batchToken:currentBatchToken,
+    createdAt:track.createdAt||new Date().toISOString(),checkedAt:new Date().toISOString()
+  });
+}
+
+function showBatchProgress(title,count){
+  currentBatchToken=Date.now()+'-'+Math.random().toString(36).slice(2);
+  batchProgress.classList.remove('hidden');
+  batchProgressTitle.textContent=title;
+  updateBatchProgress(0,count,0,count,0);
+}
+
+function updateBatchProgress(processed,count,success,processing,errors){
+  const percent=count?Math.round((processed/count)*100):0;
+  batchProgressText.textContent=processed+' de '+count+' processadas';
+  batchProgressPercent.textContent=percent+'%';
+  batchProgressBar.style.width=percent+'%';
+  batchTotal.textContent=count;
+  batchSuccess.textContent=success;
+  batchProcessing.textContent=processing;
+  batchErrors.textContent=errors;
+}
+
+async function runPool(items,concurrency,worker,onProgress){
+  const results=new Array(items.length);
+  let next=0,processed=0;
+  async function runner(){
+    while(true){
+      const index=next++;
+      if(index>=items.length) return;
+      results[index]=await worker(items[index],index);
+      processed++;
+      onProgress?.(processed,results[index]);
+    }
+  }
+  await Promise.all(Array.from({length:Math.min(concurrency,items.length)},runner));
+  return results;
+}
+
+async function callApiWithRetry(action,row,key,extra={}){
+  let lastError;
+  for(let attempt=1;attempt<=3;attempt++){
+    try{return await callApi(action,row,key,extra);}
+    catch(error){
+      lastError=error;
+      if(!error.transient||attempt===3) throw error;
+      await new Promise(resolve=>setTimeout(resolve,500*Math.pow(2,attempt-1)+Math.random()*250));
+    }
+  }
+  throw lastError;
+}
 
 function historyButton(){
   return '<div class="actions"><button class="btn btn-secondary" data-go-history>Acompanhar no Histórico</button></div>';
@@ -473,7 +517,7 @@ function upsertTracking(entry){
   if(idx>=0) trackingRows[idx]=merged;
   else trackingRows.unshift(merged);
 
-  trackingRows=trackingRows.slice(0,100);
+  trackingRows=trackingRows.slice(0,2000);
   localStorage.setItem(TRACKING_KEY,JSON.stringify(trackingRows));
 }
 
@@ -686,7 +730,7 @@ function formatDateTime(value){
 async function callApi(action,row,key,extra={}){
   const body={action,...extra};
   if(row) body.row=row;
-  if(action!=='status') body.channelId=Number(canal.value);
+  if(action!=='status'&&body.channelId==null) body.channelId=Number(canal.value);
 
   const res=await fetch(processUrl,{
     method:'POST',
@@ -704,6 +748,8 @@ async function callApi(action,row,key,extra={}){
   if(!res.ok||j.ok===false||j.error){
     const err=new Error(j.error||('HTTP '+res.status));
     err.raw=responseText;
+    err.status=res.status;
+    err.transient=[408,425,429,500,502,503,504].includes(res.status);
     throw err;
   }
 
