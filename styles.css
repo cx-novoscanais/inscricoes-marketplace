@@ -184,6 +184,14 @@ tbody tr:hover{background:#fafbfd}
 .health-bad{color:var(--danger)}
 
 .hidden{display:none!important}
+.progress-percent{font-size:22px;color:var(--blue)}
+.progress-track{height:10px;overflow:hidden;border-radius:999px;background:#e8edf3}
+.progress-bar{width:0;height:100%;border-radius:inherit;background:var(--blue);transition:width .2s ease}
+.batch-metrics{margin-bottom:0}
+.batch-metrics .metric{min-height:76px;padding:13px 15px}
+.batch-metrics .metric strong{font-size:21px;margin-top:7px}
+.offer-list{margin-top:14px;font-size:12px;color:var(--muted)}
+.offer-list b{color:#344054}
 .footer{color:#98a2b3;font-size:11px;margin-top:28px;padding:0 2px}
 
 @media(max-width:1100px){

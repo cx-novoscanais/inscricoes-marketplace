@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Inscrições Marketplace</title>
   <meta name="description" content="Sistema de inscrições Marketplace">
-  <link rel="stylesheet" href="./styles.css?v=20260901-ke5000">
+  <link rel="stylesheet" href="./styles.css?v=20260902-batch">
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 </head>
 <body>
@@ -46,14 +46,14 @@
           <div>
             <p class="eyebrow">OPERAÇÃO MARKETPLACE</p>
             <h1>Nova carga de inscrições</h1>
-            <p class="page-subtitle">Valide a planilha, confirme a oferta do canal no DMH e envie a inscrição.</p>
+            <p class="page-subtitle">Valide a planilha, confirme as ofertas do canal no DMH e envie até 500 inscrições por carga.</p>
           </div>
           <span class="environment-badge">PRODUÇÃO</span>
         </header>
 
         <div class="notice">
           <span class="notice-icon">i</span>
-          <div><strong>Envio controlado:</strong> esta versão permanece limitada a 1 inscrição por vez em Produção.</div>
+          <div><strong>Envio em lote:</strong> cada arquivo pode conter até 500 inscrições para o canal selecionado.</div>
         </div>
 
         <section class="panel">
@@ -108,7 +108,7 @@
             <div class="panel-header simple">
               <div>
                 <h2>Prévia da planilha</h2>
-                <p>Confira os dados antes de consultar a oferta.</p>
+              <p>Confira os dados antes de consultar as ofertas. Linhas inválidas não serão enviadas.</p>
               </div>
             </div>
             <div class="table-wrap">
@@ -125,13 +125,31 @@
         <section id="dmhBox" class="panel hidden">
           <div class="panel-header simple">
             <div>
-              <p class="eyebrow success-text">DMH VALIDADO</p>
-              <h2>Oferta encontrada</h2>
+              <p class="eyebrow success-text">CONSULTA DMH</p>
+              <h2>Ofertas da carga</h2>
             </div>
           </div>
           <div id="dmhResult"></div>
           <div class="actions">
-            <button id="enviar" class="btn btn-danger">Descer inscrição em Produção</button>
+            <button id="enviar" class="btn btn-danger">Enviar lote em Produção</button>
+          </div>
+        </section>
+
+        <section id="batchProgress" class="panel hidden" aria-live="polite">
+          <div class="panel-header simple">
+            <div>
+              <p class="eyebrow">PROCESSAMENTO DO LOTE</p>
+              <h2 id="batchProgressTitle">Preparando inscrições</h2>
+              <p id="batchProgressText">0 de 0 processadas</p>
+            </div>
+            <strong id="batchProgressPercent" class="progress-percent">0%</strong>
+          </div>
+          <div class="progress-track"><div id="batchProgressBar" class="progress-bar"></div></div>
+          <div class="metrics metrics-4 batch-metrics">
+            <article class="metric"><span>Total do lote</span><strong id="batchTotal">0</strong></article>
+            <article class="metric"><span>Concluídas</span><strong id="batchSuccess">0</strong></article>
+            <article class="metric"><span>Processando</span><strong id="batchProcessing">0</strong></article>
+            <article class="metric"><span>Com erro</span><strong id="batchErrors">0</strong></article>
           </div>
         </section>
 
@@ -260,6 +278,6 @@
       <footer class="footer">Inscrições Marketplace • Cogna Novos Canais</footer>
     </main>
   </div>
-  <script src="./app.js?v=20260901-ke5000"></script>
+  <script src="./app.js?v=20260902-batch"></script>
 </body>
 </html>
