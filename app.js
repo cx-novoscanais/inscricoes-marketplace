@@ -46,6 +46,7 @@ const reportQuote=$('reportQuote');
 const reportChannelTbody=$('reportChannelTbody');
 const reportHealth=$('reportHealth');
 const reportUpdatedAt=$('reportUpdatedAt');
+const reportBatchTbody=$('reportBatchTbody');
 
 let channels=[
 [99,'Vai de bolsa - Marketplace'],[97,'Digdu - Marketplace'],[96,'Vou de bolsa - Marketplace'],
@@ -66,12 +67,15 @@ const required=[
 ];
 
 const TRACKING_KEY='marketplace_tracking_v2';
+const BATCHES_KEY='marketplace_batches_v1';
+const MAX_SAVED_BATCHES=8;
 const MAX_BATCH_SIZE=500;
 const PREVIEW_CONCURRENCY=5;
 const SUBMIT_CONCURRENCY=3;
 let validRows=[];
 let offerApprovedRows=[];
 let trackingRows=loadTracking();
+let batchRows=loadBatches();
 let refreshInProgress=false;
 
 init();
@@ -270,12 +274,19 @@ enviar.onclick=async()=>{
 
   try{
     showBatchProgress('Enviando inscrições em Produção',count);
+    const batch=createBatch(count);
     const results=await runPool(offerApprovedRows,SUBMIT_CONCURRENCY,async(row,index)=>{
       try{
         const response=await callApiWithRetry('submit',row,key);
         saveSubmittedTracking(response,row);
-        return {ok:true,row,response,index};
-      }catch(error){return {ok:false,row,error,index};}
+        const result={ok:true,row,response,index};
+        saveBatchItem(batch.id,result);
+        return result;
+      }catch(error){
+        const result={ok:false,row,error,index};
+        saveBatchItem(batch.id,result);
+        return result;
+      }
     },processed=>{
       const completed=trackingRows.filter(x=>x.batchToken===currentBatchToken).length;
       updateBatchProgress(processed,count,completed,Math.max(0,count-processed),processed-completed);
@@ -285,6 +296,7 @@ enviar.onclick=async()=>{
 
     const succeeded=results.filter(x=>x.ok);
     const failed=results.filter(x=>!x.ok);
+    finishBatch(batch.id,succeeded.length,failed.length);
     finalBox.classList.remove('hidden');
     finalResult.innerHTML=
       '<div class="'+(failed.length?'warn':'success')+'"><b>Lote processado.</b><br>'+
@@ -323,6 +335,121 @@ function saveSubmittedTracking(r,row){
     businessOutcome:r.processing?.businessOutcome||null,batchToken:currentBatchToken,
     createdAt:track.createdAt||new Date().toISOString(),checkedAt:new Date().toISOString()
   });
+}
+
+function createBatch(totalCount){
+  const createdAt=new Date().toISOString();
+  const batch={
+    id:currentBatchToken,
+    createdAt,
+    finishedAt:null,
+    channelId:Number(canal.value),
+    channelName:channelName(Number(canal.value)),
+    total:totalCount,
+    accepted:0,
+    errors:0,
+    items:[]
+  };
+  batchRows.unshift(batch);
+  batchRows=batchRows.slice(0,MAX_SAVED_BATCHES);
+  persistBatches();
+  return batch;
+}
+
+function saveBatchItem(batchId,result){
+  const batch=batchRows.find(x=>x.id===batchId);
+  if(!batch) return;
+  batch.items.push(normalizeBatchItem(result,batch));
+  batch.accepted=batch.items.filter(x=>x.envioAceito==='Sim').length;
+  batch.errors=batch.items.filter(x=>x.envioAceito==='Não').length;
+  persistBatches();
+}
+
+function finishBatch(batchId,accepted,errors){
+  const batch=batchRows.find(x=>x.id===batchId);
+  if(!batch) return;
+  batch.finishedAt=new Date().toISOString();
+  batch.accepted=accepted;
+  batch.errors=errors;
+  persistBatches();
+  renderReports();
+}
+
+function normalizeBatchItem(result,batch){
+  const r=result.response||{};
+  const processing=r.processing||{};
+  const created=r.created||{};
+  const quote=processing.quote||{};
+  const errorDetails=processing.errorDetails||{};
+  const outcome=processing.businessOutcome||{};
+  const requestError=result.error||null;
+  return {
+    linhaPlanilha:result.index+2,
+    dadosOriginais:{...result.row},
+    loteId:batch.id,
+    dataCarga:batch.createdAt,
+    canalId:batch.channelId,
+    canalNome:batch.channelName,
+    envioAceito:result.ok?'Sim':'Não',
+    inscricaoId:String(created.id||created.inscricao?.id||created.idOrigem||''),
+    status:String(processing.status||(result.ok?'PROCESSING':'ERROR')).toUpperCase(),
+    processamentoFinalizado:Boolean(processing.finished),
+    cotacaoGerada:Boolean(processing.quoteReady),
+    prontoProximaEtapa:Boolean(processing.readyForNextStep),
+    cotacaoReferencia:quote.orderReference||'',
+    cotacaoTipo:quote.tipoSimulacao||'',
+    cotacaoData:quote.dataGeracao||'',
+    erroCodigo:errorDetails.code||outcome.code||requestError?.status||'',
+    erroMensagem:errorSummary(errorDetails)||outcome.frontendMessage||requestError?.message||'',
+    erroDetalhe:errorDetails.detail||'',
+    resultadoNegocio:outcome.type||'',
+    inscricaoExistenteId:outcome.existingEnrollmentId||'',
+    consultadoEm:r.checkedAt||new Date().toISOString()
+  };
+}
+
+function loadBatches(){
+  try{
+    const data=JSON.parse(localStorage.getItem(BATCHES_KEY)||'[]');
+    return Array.isArray(data)?data:[];
+  }catch{return [];}
+}
+
+function persistBatches(){
+  try{
+    localStorage.setItem(BATCHES_KEY,JSON.stringify(batchRows));
+  }catch(error){
+    if(batchRows.length>1){
+      batchRows.pop();
+      persistBatches();
+    }else{
+      console.warn('Não foi possível salvar o histórico da carga:',error);
+    }
+  }
+}
+
+function updateBatchItemFromStatus(enrollmentId,response){
+  const batch=batchRows.find(x=>(x.items||[]).some(item=>String(item.inscricaoId)===String(enrollmentId)));
+  const item=batch?.items?.find(x=>String(x.inscricaoId)===String(enrollmentId));
+  if(!item) return;
+  const processing=response.processing||{};
+  const quote=processing.quote||{};
+  const errorDetails=processing.errorDetails||{};
+  const outcome=processing.businessOutcome||{};
+  item.status=String(processing.status||item.status||'PROCESSING').toUpperCase();
+  item.processamentoFinalizado=Boolean(processing.finished);
+  item.cotacaoGerada=Boolean(processing.quoteReady);
+  item.prontoProximaEtapa=Boolean(processing.readyForNextStep);
+  item.cotacaoReferencia=quote.orderReference||item.cotacaoReferencia||'';
+  item.cotacaoTipo=quote.tipoSimulacao||item.cotacaoTipo||'';
+  item.cotacaoData=quote.dataGeracao||item.cotacaoData||'';
+  item.erroCodigo=errorDetails.code||outcome.code||item.erroCodigo||'';
+  item.erroMensagem=errorSummary(errorDetails)||outcome.frontendMessage||item.erroMensagem||'';
+  item.erroDetalhe=errorDetails.detail||item.erroDetalhe||'';
+  item.resultadoNegocio=outcome.type||item.resultadoNegocio||'';
+  item.inscricaoExistenteId=outcome.existingEnrollmentId||item.inscricaoExistenteId||'';
+  item.consultadoEm=response.checkedAt||new Date().toISOString();
+  persistBatches();
 }
 
 function showBatchProgress(title,count){
@@ -457,6 +584,7 @@ async function refreshOne(id,cpf,showMessage){
       businessOutcome,
       checkedAt:r.checkedAt||new Date().toISOString()
     });
+    updateBatchItemFromStatus(String(id),r);
 
     renderTracking();
     renderReports();
@@ -598,6 +726,92 @@ function renderReports(){
     healthItem('SUCCESS sem cotação',noQuoteCount,noQuoteCount?'bad':'ok')+
     healthItem('Erros de processamento',errorCount,errorCount?'bad':'ok')+
     healthItem('Cotações geradas',quoteCount,'ok');
+
+  renderBatchReports();
+}
+
+function renderBatchReports(){
+  if(!batchRows.length){
+    reportBatchTbody.innerHTML='<tr><td colspan="7" class="muted">As próximas cargas enviadas aparecerão aqui para download.</td></tr>';
+    return;
+  }
+  reportBatchTbody.innerHTML=batchRows.map(batch=>
+    '<tr>'+
+      '<td class="nowrap">'+esc(formatDateTime(batch.createdAt))+'</td>'+
+      '<td class="nowrap"><b>'+esc(shortBatchId(batch.id))+'</b></td>'+
+      '<td>'+esc(batch.channelName||('Canal '+batch.channelId))+' — '+esc(batch.channelId)+'</td>'+
+      '<td>'+Number(batch.total||0)+'</td>'+
+      '<td class="ok">'+Number(batch.accepted||0)+'</td>'+
+      '<td class="'+(batch.errors?'bad':'')+'">'+Number(batch.errors||0)+'</td>'+
+      '<td><button class="mini-btn" data-download-batch="'+esc(batch.id)+'">Baixar Excel</button></td>'+
+    '</tr>'
+  ).join('');
+}
+
+reportBatchTbody.addEventListener('click',event=>{
+  const button=event.target.closest('[data-download-batch]');
+  if(!button) return;
+  const batch=batchRows.find(x=>x.id===button.dataset.downloadBatch);
+  if(batch) downloadBatchWorkbook(batch);
+});
+
+function downloadBatchWorkbook(batch){
+  const rows=(batch.items||[]).sort((a,b)=>a.linhaPlanilha-b.linhaPlanilha).map(item=>({
+    'Linha na planilha':item.linhaPlanilha,
+    ...item.dadosOriginais,
+    'ID do lote':item.loteId,
+    'Data da carga':excelDate(item.dataCarga),
+    'Canal ID':item.canalId,
+    'Canal':item.canalNome,
+    'Envio aceito':item.envioAceito,
+    'ID da inscrição':item.inscricaoId,
+    'Status':item.status,
+    'Processamento finalizado':item.processamentoFinalizado?'Sim':'Não',
+    'Cotação gerada':item.cotacaoGerada?'Sim':'Não',
+    'Pronto para próxima etapa':item.prontoProximaEtapa?'Sim':'Não',
+    'Referência da cotação':item.cotacaoReferencia,
+    'Tipo da cotação':item.cotacaoTipo,
+    'Data da cotação':item.cotacaoData,
+    'Código do erro':item.erroCodigo,
+    'Mensagem do erro':item.erroMensagem,
+    'Detalhe do erro':item.erroDetalhe,
+    'Resultado de negócio':item.resultadoNegocio,
+    'Inscrição existente vinculada':item.inscricaoExistenteId,
+    'Último retorno':excelDate(item.consultadoEm)
+  }));
+
+  const summary=[
+    ['Relatório da carga',shortBatchId(batch.id)],
+    ['Data da carga',excelDate(batch.createdAt)],
+    ['Data de conclusão',excelDate(batch.finishedAt)],
+    ['Canal',batch.channelName],
+    ['Canal ID',batch.channelId],
+    ['Total',batch.total],
+    ['Envios aceitos',batch.accepted],
+    ['Erros no envio',batch.errors],
+    ['Cotações geradas',(batch.items||[]).filter(x=>x.cotacaoGerada).length],
+    ['Em processamento',(batch.items||[]).filter(x=>!x.processamentoFinalizado&&x.envioAceito==='Sim').length]
+  ];
+
+  const workbook=XLSX.utils.book_new();
+  const detailSheet=XLSX.utils.json_to_sheet(rows);
+  const summarySheet=XLSX.utils.aoa_to_sheet(summary);
+  detailSheet['!autofilter']={ref:detailSheet['!ref']||'A1:A1'};
+  detailSheet['!freeze']={xSplit:0,ySplit:1};
+  detailSheet['!cols']=Object.keys(rows[0]||{'Sem dados':''}).map(key=>({wch:Math.min(45,Math.max(12,key.length+2))}));
+  summarySheet['!cols']=[{wch:26},{wch:42}];
+  XLSX.utils.book_append_sheet(workbook,summarySheet,'Resumo');
+  XLSX.utils.book_append_sheet(workbook,detailSheet,'Inscricoes');
+  const date=new Date(batch.createdAt||Date.now()).toISOString().slice(0,10);
+  XLSX.writeFile(workbook,'carga_marketplace_canal_'+batch.channelId+'_'+date+'_'+shortBatchId(batch.id)+'.xlsx');
+}
+
+function shortBatchId(id){
+  return String(id||'').split('-')[0];
+}
+
+function excelDate(value){
+  return value?formatDateTime(value):'';
 }
 
 function isMarketplaceScholarshipApplied(item){
