@@ -273,11 +273,28 @@
             <div id="reportHealth" class="health-list"></div>
           </section>
         </div>
+
+        <section class="panel">
+          <div class="panel-header simple">
+            <div>
+              <h2>Arquivos das cargas</h2>
+              <p>Baixe cada subida em Excel com os dados originais, cotação, status e mensagens de erro.</p>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr><th>Data</th><th>Lote</th><th>Canal</th><th>Total</th><th>Aceitas</th><th>Erros</th><th>Arquivo</th></tr>
+              </thead>
+              <tbody id="reportBatchTbody"></tbody>
+            </table>
+          </div>
+        </section>
       </section>
 
       <footer class="footer">Inscrições Marketplace • Cogna Novos Canais</footer>
     </main>
   </div>
-  <script src="./app.js?v=20260902-batch"></script>
+  <script src="./app.js?v=20260902-export-report"></script>
 </body>
 </html>
