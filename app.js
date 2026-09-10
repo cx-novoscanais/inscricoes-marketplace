@@ -74,6 +74,7 @@ const PREVIEW_CONCURRENCY=5;
 const SUBMIT_CONCURRENCY=3;
 let validRows=[];
 let offerApprovedRows=[];
+let offerPreviewResults=[];
 let trackingRows=loadTracking();
 let batchRows=loadBatches();
 let refreshInProgress=false;
@@ -229,6 +230,7 @@ oferta.onclick=async()=>{
       catch(error){return {ok:false,row,error,index};}
     },progress=>updateBatchProgress(progress,validRows.length,0,progress,0));
 
+    offerPreviewResults=results;
     offerApprovedRows=results.filter(x=>x.ok).map(x=>x.row);
     const rejected=results.filter(x=>!x.ok);
     const first=results.find(x=>x.ok)?.response||{};
@@ -244,7 +246,16 @@ oferta.onclick=async()=>{
       (is155
         ? '<div class="validation-box"><b>Regra financeira do canal 155 validada.</b> Bolsa de isenção de 100% em todas as parcelas.</div>'
         : '<div class="validation-box"><b>Consulta concluída.</b> Cada inscrição será enviada usando a oferta correspondente ao canal selecionado.</div>')+
-      (rejected.length?'<div class="error offer-list"><b>'+rejected.length+' linha(s) não serão enviadas:</b><br>'+rejected.slice(0,20).map(x=>'Linha '+(x.index+2)+': '+esc(x.error.message)).join('<br>')+(rejected.length>20?'<br>… e mais '+(rejected.length-20):'')+'</div>':'');
+      (rejected.length?'<div class="error offer-list"><b>'+rejected.length+' linha(s) não serão enviadas:</b><br>'+rejected.slice(0,20).map(x=>{
+        const diagnostic=x.error?.offerDiagnostic;
+        const channels=Array.isArray(diagnostic?.availableChannels)&&diagnostic.availableChannels.length
+          ? ' Canais encontrados: '+diagnostic.availableChannels.join(', ')+'.'
+          : '';
+        const idDMH=diagnostic?.offers?.[0]?.idDMH
+          ? ' ID DMH: '+diagnostic.offers[0].idDMH+'.'
+          : '';
+        return 'Linha '+(x.index+2)+': '+esc(x.error.message+channels+idDMH);
+      }).join('<br>')+(rejected.length>20?'<br>… e mais '+(rejected.length-20):'')+'</div>':'');
 
     dmhBox.classList.remove('hidden');
     enviar.disabled=offerApprovedRows.length===0;
@@ -274,16 +285,21 @@ enviar.onclick=async()=>{
 
   try{
     showBatchProgress('Enviando inscrições em Produção',count);
-    const batch=createBatch(count);
+    const batch=createBatch(validRows.length);
+    const previewRejected=offerPreviewResults.filter(x=>!x.ok);
+    previewRejected.forEach(result=>saveBatchItem(batch.id,result));
+
     const results=await runPool(offerApprovedRows,SUBMIT_CONCURRENCY,async(row,index)=>{
+      const originalIndex=validRows.indexOf(row);
+      const reportIndex=originalIndex>=0?originalIndex:index;
       try{
         const response=await callApiWithRetry('submit',row,key);
         saveSubmittedTracking(response,row);
-        const result={ok:true,row,response,index};
+        const result={ok:true,row,response,index:reportIndex};
         saveBatchItem(batch.id,result);
         return result;
       }catch(error){
-        const result={ok:false,row,error,index};
+        const result={ok:false,row,error,index:reportIndex};
         saveBatchItem(batch.id,result);
         return result;
       }
@@ -296,11 +312,11 @@ enviar.onclick=async()=>{
 
     const succeeded=results.filter(x=>x.ok);
     const failed=results.filter(x=>!x.ok);
-    finishBatch(batch.id,succeeded.length,failed.length);
+    finishBatch(batch.id,succeeded.length,failed.length+previewRejected.length);
     finalBox.classList.remove('hidden');
     finalResult.innerHTML=
-      '<div class="'+(failed.length?'warn':'success')+'"><b>Lote processado.</b><br>'+
-      succeeded.length+' inscrição(ões) aceita(s) e '+failed.length+' com falha no envio.'+
+      '<div class="'+((failed.length||previewRejected.length)?'warn':'success')+'"><b>Lote processado.</b><br>'+
+      succeeded.length+' inscrição(ões) aceita(s), '+failed.length+' com falha no envio e '+previewRejected.length+' bloqueada(s) na validação DMH.'+
       (failed.length?'<br>As linhas com falha podem ser corrigidas e reenviadas em uma nova planilha.':'')+'</div>'+historyButton();
     raw.textContent=JSON.stringify(results.map(x=>x.ok?{linha:x.index+2,ok:true,response:x.response}:{linha:x.index+2,ok:false,error:x.error.message}),null,2);
     renderTracking();
@@ -383,6 +399,8 @@ function normalizeBatchItem(result,batch){
   const errorDetails=processing.errorDetails||{};
   const outcome=processing.businessOutcome||{};
   const requestError=result.error||null;
+  const offerDiagnostic=r.offerDiagnostic||requestError?.offerDiagnostic||null;
+  const diagnosticOffer=offerDiagnostic?.offers?.[0]||{};
   return {
     linhaPlanilha:result.index+2,
     dadosOriginais:{...result.row},
@@ -399,9 +417,17 @@ function normalizeBatchItem(result,batch){
     cotacaoReferencia:quote.orderReference||'',
     cotacaoTipo:quote.tipoSimulacao||'',
     cotacaoData:quote.dataGeracao||'',
-    erroCodigo:errorDetails.code||outcome.code||requestError?.status||'',
+    erroCodigo:errorDetails.code||outcome.code||requestError?.errorCode||requestError?.status||'',
     erroMensagem:errorSummary(errorDetails)||outcome.frontendMessage||requestError?.message||'',
     erroDetalhe:errorDetails.detail||'',
+    diagnosticoOferta:offerDiagnostic?.reason||'',
+    fonteOferta:offerDiagnostic?.source||'',
+    businessKeyEncontrada:offerDiagnostic?.businessKeyFound===true?'Sim':offerDiagnostic?.businessKeyFound===false?'Não':'',
+    canalSolicitadoEncontrado:offerDiagnostic?.requestedChannelFound===true?'Sim':offerDiagnostic?.requestedChannelFound===false?'Não':'',
+    canaisEncontrados:Array.isArray(offerDiagnostic?.availableChannels)?offerDiagnostic.availableChannels.join(', '):'',
+    idDMH:r.offer?.idDMH||diagnosticOffer.idDMH||'',
+    vigenciaInicial:diagnosticOffer.validFrom||'',
+    vigenciaFinal:diagnosticOffer.expiredAt||'',
     resultadoNegocio:outcome.type||'',
     inscricaoExistenteId:outcome.existingEnrollmentId||'',
     consultadoEm:r.checkedAt||new Date().toISOString()
@@ -775,6 +801,14 @@ function downloadBatchWorkbook(batch){
     'Código do erro':item.erroCodigo,
     'Mensagem do erro':item.erroMensagem,
     'Detalhe do erro':item.erroDetalhe,
+    'Diagnóstico da oferta':item.diagnosticoOferta,
+    'Fonte da oferta':item.fonteOferta,
+    'Business Key encontrada':item.businessKeyEncontrada,
+    'Canal solicitado encontrado':item.canalSolicitadoEncontrado,
+    'Canais encontrados no DMH':item.canaisEncontrados,
+    'ID DMH':item.idDMH,
+    'Vigência inicial':item.vigenciaInicial,
+    'Vigência final':item.vigenciaFinal,
     'Resultado de negócio':item.resultadoNegocio,
     'Inscrição existente vinculada':item.inscricaoExistenteId,
     'Último retorno':excelDate(item.consultadoEm)
@@ -962,7 +996,10 @@ async function callApi(action,row,key,extra={}){
   if(!res.ok||j.ok===false||j.error){
     const err=new Error(j.error||('HTTP '+res.status));
     err.raw=responseText;
+    err.data=j;
     err.status=res.status;
+    err.errorCode=j.errorCode||null;
+    err.offerDiagnostic=j.offerDiagnostic||null;
     err.transient=[408,425,429,500,502,503,504].includes(res.status);
     throw err;
   }
