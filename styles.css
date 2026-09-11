@@ -221,3 +221,5 @@ tbody tr:hover{background:#fafbfd}
 
 .business-outcome{margin-top:7px;max-width:380px;color:#17633a;font-size:10px;line-height:1.4;white-space:normal}
 .muted-inline{color:#667085;font-size:11px}
+.academic-result,.condition-result{margin-top:6px;max-width:380px;font-size:10px;line-height:1.4;white-space:normal}
+.academic-result{color:#5f4b16}.condition-result{color:#17633a}
