@@ -6,6 +6,7 @@ const arquivo=$('arquivo');
 const opkey=$('opkey');
 const opkeyHistory=$('opkeyHistory');
 const validar=$('validar');
+const baixarModelo=$('baixarModelo');
 const oferta=$('oferta');
 const enviar=$('enviar');
 const resumo=$('resumo');
@@ -60,11 +61,11 @@ let channels=[
 [160,'Conect Car - Marketplace'],[162,'Omverso - Marketplace']
 ];
 
-const required=[
-'cpf','nome','rg','anoConclusaoEnsinoMedio','sexo','celular','dataNascimento','email',
-'logradouro','numero','cep','uf','municipio','businessKeyOferta','tipoIngresso',
-'aceiteTermo','aceitaReceberEmail','aceitaReceberSMS','aceitaReceberWhatsApp'
+const templateColumns=[
+'cpf','nome','email','celular','dataNascimento','sexo','rg','anoConclusaoEnsinoMedio',
+'cep','logradouro','numero','complemento','bairro','cidade','uf','businessKeyOferta'
 ];
+const required=templateColumns.filter(column=>column!=='complemento');
 
 const TRACKING_KEY='marketplace_tracking_v2';
 const BATCHES_KEY='marketplace_batches_v1';
@@ -89,6 +90,7 @@ function init(){
   renderReports();
   canal.addEventListener('change',()=>{
     offerApprovedRows=[];
+    offerPreviewResults=[];
     dmhBox.classList.add('hidden');
     finalBox.classList.add('hidden');
     enviar.disabled=true;
@@ -158,6 +160,19 @@ async function loadChannels(){
   }
 }
 
+baixarModelo.onclick=()=>{
+  const workbook=XLSX.utils.book_new();
+  const worksheet=XLSX.utils.aoa_to_sheet([templateColumns]);
+  worksheet['!freeze']={xSplit:0,ySplit:1};
+  worksheet['!autofilter']={ref:'A1:P1'};
+  worksheet['!cols']=[
+    {wch:16},{wch:34},{wch:34},{wch:18},{wch:18},{wch:10},{wch:16},{wch:25},
+    {wch:14},{wch:34},{wch:12},{wch:22},{wch:24},{wch:28},{wch:10},{wch:52}
+  ];
+  XLSX.utils.book_append_sheet(workbook,worksheet,'MODELO_GRADUACAO');
+  XLSX.writeFile(workbook,'modelo_inscricoes_marketplace_graduacao.xlsx');
+};
+
 validar.onclick=()=>{
   if(!arquivo.files[0]) return alert('Selecione uma planilha.');
   const rd=new FileReader();
@@ -166,7 +181,18 @@ validar.onclick=()=>{
     try{
       const wb=XLSX.read(new Uint8Array(e.target.result),{type:'array'});
       const ws=wb.Sheets['MODELO_GRADUACAO']||wb.Sheets[wb.SheetNames[0]];
-      const dataRows=XLSX.utils.sheet_to_json(ws,{defval:''});
+      const matrix=XLSX.utils.sheet_to_json(ws,{header:1,defval:'',blankrows:false});
+      const receivedColumns=(matrix[0]||[]).map(value=>String(value||'').trim());
+      const columnsOk=receivedColumns.length===templateColumns.length &&
+        templateColumns.every((column,index)=>receivedColumns[index]===column);
+      if(!columnsOk){
+        throw new Error(
+          'As colunas devem estar exatamente nesta ordem: '+templateColumns.join(', ')+
+          '. Baixe e utilize o novo modelo disponível no sistema.'
+        );
+      }
+      const dataRows=XLSX.utils.sheet_to_json(ws,{defval:'',range:1,header:templateColumns})
+        .filter(row=>templateColumns.some(column=>String(row[column]??'').trim()!==''));
       if(dataRows.length>MAX_BATCH_SIZE){
         throw new Error('A planilha possui '+dataRows.length+' linhas. O limite por carga é '+MAX_BATCH_SIZE+'.');
       }
@@ -184,7 +210,7 @@ validar.onclick=()=>{
           '<td>'+esc(r.cpf)+'</td>'+
           '<td>'+esc(r.nome)+'</td>'+
           '<td>'+esc(r.businessKeyOferta)+'</td>'+
-          '<td>'+esc(r.diasDaSemanaSelecionado||'')+'</td>'+
+          '<td>Automático (DMH)</td>'+
           '<td class="'+(good?'ok':'bad')+'">'+(good?'PRONTO':'ERRO')+'</td>'+
           '<td>'+miss.map(x=>'Falta: '+esc(x)).join('<br>')+'</td>'+
         '</tr>';
