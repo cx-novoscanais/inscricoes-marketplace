@@ -73,6 +73,8 @@ const MAX_SAVED_BATCHES=8;
 const MAX_BATCH_SIZE=500;
 const PREVIEW_CONCURRENCY=5;
 const SUBMIT_CONCURRENCY=3;
+const OPERATOR_SESSION_KEY='marketplace_operator_key_session';
+const AUTO_REFRESH_MS=60000;
 let validRows=[];
 let offerApprovedRows=[];
 let offerPreviewResults=[];
@@ -88,6 +90,8 @@ function init(){
   loadChannels();
   renderTracking();
   renderReports();
+  const savedKey=sessionStorage.getItem(OPERATOR_SESSION_KEY)||'';
+  if(savedKey){opkey.value=savedKey;opkeyHistory.value=savedKey;}
   canal.addEventListener('change',()=>{
     offerApprovedRows=[];
     offerPreviewResults=[];
@@ -127,6 +131,9 @@ function switchView(view){
 function bindKeySync(){
   const sync=(from,to)=>()=>{
     if(to && from.value!==to.value) to.value=from.value;
+    const value=String(from.value||'').trim();
+    if(value) sessionStorage.setItem(OPERATOR_SESSION_KEY,value);
+    else sessionStorage.removeItem(OPERATOR_SESSION_KEY);
   };
   opkey?.addEventListener('input',sync(opkey,opkeyHistory));
   opkeyHistory?.addEventListener('input',sync(opkeyHistory,opkey));
@@ -456,6 +463,11 @@ function normalizeBatchItem(result,batch){
     vigenciaFinal:diagnosticOffer.expiredAt||'',
     resultadoNegocio:outcome.type||'',
     inscricaoExistenteId:outcome.existingEnrollmentId||'',
+    resultadoVestibular:processing.academicResult?.status||'',
+    detalheVestibular:processing.academicResult?.detail||'',
+    situacaoCondicao:processing.condition?.status||conditionStatus(processing),
+    condicaoAplicada:processing.condition?.applied===true,
+    motivoCondicao:processing.condition?.reason||'',
     consultadoEm:r.checkedAt||new Date().toISOString()
   };
 }
@@ -500,6 +512,11 @@ function updateBatchItemFromStatus(enrollmentId,response){
   item.erroDetalhe=errorDetails.detail||item.erroDetalhe||'';
   item.resultadoNegocio=outcome.type||item.resultadoNegocio||'';
   item.inscricaoExistenteId=outcome.existingEnrollmentId||item.inscricaoExistenteId||'';
+  item.resultadoVestibular=processing.academicResult?.status||item.resultadoVestibular||'';
+  item.detalheVestibular=processing.academicResult?.detail||item.detalheVestibular||'';
+  item.situacaoCondicao=processing.condition?.status||conditionStatus(processing)||item.situacaoCondicao||'';
+  item.condicaoAplicada=processing.condition?.applied===true||Boolean(item.condicaoAplicada);
+  item.motivoCondicao=processing.condition?.reason||item.motivoCondicao||'';
   item.consultadoEm=response.checkedAt||new Date().toISOString();
   persistBatches();
 }
@@ -581,7 +598,7 @@ atualizarTodos.onclick=async()=>{
   atualizarTodos.textContent='Atualizando...';
 
   try{
-    for(const item of pending) await refreshOne(item.id,item.cpf,false);
+    await refreshPendingBatch(pending);
     showStatusMessage('Atualização concluída para '+pending.length+' inscrição(ões).');
   }finally{
     atualizarTodos.disabled=false;
@@ -612,6 +629,7 @@ statusTbody.addEventListener('click',async e=>{
 async function refreshOne(id,cpf,showMessage){
   try{
     const r=await callApi('status',null,getOperatorKey(),{enrollmentId:String(id),cpf:String(cpf||'')});
+    applyStatusResponse(String(id),String(cpf||''),r);
     const status=String(r.processing?.status||'PROCESSING').toUpperCase();
     const data=r.processing?.data||null;
     const info=extractInfo(data);
@@ -619,25 +637,6 @@ async function refreshOne(id,cpf,showMessage){
     const readyForNextStep=Boolean(r.processing?.readyForNextStep);
     const errorDetails=r.processing?.errorDetails||null;
     const businessOutcome=r.processing?.businessOutcome||null;
-
-    upsertTracking({
-      id:String(id),
-      cpf:String(cpf||info.cpf||''),
-      nome:info.nome||'',
-      canalId:info.canalId||'',
-      canalNome:info.canalNome||'',
-      curso:info.curso||'',
-      status,
-      finished:Boolean(r.processing?.finished),
-      quoteReady,
-      readyForNextStep,
-      quote:r.processing?.quote||null,
-      errorDetails,
-      businessOutcome,
-      checkedAt:r.checkedAt||new Date().toISOString()
-    });
-    updateBatchItemFromStatus(String(id),r);
-
     renderTracking();
     renderReports();
 
@@ -664,6 +663,34 @@ async function refreshOne(id,cpf,showMessage){
     if(showMessage) showStatusMessage('Não foi possível consultar o ID '+id+': '+err.message,true);
     throw err;
   }
+}
+
+function applyStatusResponse(id,cpf,r){
+  const processing=r.processing||{};
+  const info=extractInfo(processing.data||null);
+  upsertTracking({
+    id:String(id),cpf:String(cpf||info.cpf||''),nome:info.nome||'',
+    canalId:info.canalId||'',canalNome:info.canalNome||'',curso:info.curso||'',
+    status:String(processing.status||'PROCESSING').toUpperCase(),
+    finished:Boolean(processing.finished),quoteReady:Boolean(processing.quoteReady),
+    readyForNextStep:Boolean(processing.readyForNextStep),quote:processing.quote||null,
+    errorDetails:processing.errorDetails||null,businessOutcome:processing.businessOutcome||null,
+    academicResult:processing.academicResult||null,condition:processing.condition||null,
+    checkedAt:r.checkedAt||new Date().toISOString()
+  });
+  updateBatchItemFromStatus(String(id),r);
+}
+
+async function refreshPendingBatch(items){
+  if(!items.length) return;
+  const response=await callApi('status-batch',null,getOperatorKey(),{
+    items:items.slice(0,100).map(item=>({enrollmentId:String(item.id),cpf:String(item.cpf||'')}))
+  });
+  (response.results||[]).forEach(result=>{
+    if(result.ok&&result.enrollmentId) applyStatusResponse(result.enrollmentId,result.cpf||'',result);
+  });
+  renderTracking();
+  renderReports();
 }
 
 function extractInfo(data){
@@ -837,6 +864,11 @@ function downloadBatchWorkbook(batch){
     'Vigência final':item.vigenciaFinal,
     'Resultado de negócio':item.resultadoNegocio,
     'Inscrição existente vinculada':item.inscricaoExistenteId,
+    'Resultado do vestibular':item.resultadoVestibular,
+    'Detalhe do vestibular':item.detalheVestibular,
+    'Situação da condição do canal':item.situacaoCondicao,
+    'Condição aplicada':item.condicaoAplicada?'Sim':'Não',
+    'Motivo da condição':item.motivoCondicao,
     'Último retorno':excelDate(item.consultadoEm)
   }));
 
@@ -878,6 +910,14 @@ function isMarketplaceScholarshipApplied(item){
   return item?.businessOutcome?.type==='MARKETPLACE_SCHOLARSHIP_APPLIED_EXISTING';
 }
 
+function conditionStatus(processing){
+  if(processing?.businessOutcome?.type==='MARKETPLACE_SCHOLARSHIP_APPLIED_EXISTING') return 'APLICADA_INSCRICAO_EXISTENTE';
+  if(processing?.quoteReady) return 'COTACAO_GERADA';
+  if(processing?.academicResult?.approved===false) return 'NAO_APLICADA_REPROVACAO';
+  if(isFinalStatus(processing?.status)) return 'NAO_APLICADA_ERRO_FINAL';
+  return 'AGUARDANDO_PROCESSAMENTO';
+}
+
 function linkedEnrollmentLine(outcome){
   if(outcome?.existingEnrollmentId){
     return '<b>Inscrição que recebeu a bolsa:</b> '+esc(outcome.existingEnrollmentId);
@@ -899,7 +939,13 @@ function trackingStatusCell(item){
   }
 
   const status=String(item?.status||'PROCESSING').toUpperCase();
-  return statusBadge(status)+'<br>'+quoteBadge(item.quoteReady,item.status)+errorReasonCell(item);
+  const academic=item?.academicResult?.status
+    ? '<div class="academic-result"><b>Vestibular:</b> '+esc(item.academicResult.status)+'</div>'
+    : '';
+  const condition=item?.condition?.status
+    ? '<div class="condition-result"><b>Condição:</b> '+esc(item.condition.status.replaceAll('_',' '))+'</div>'
+    : '';
+  return statusBadge(status)+'<br>'+quoteBadge(item.quoteReady,item.status)+academic+condition+errorReasonCell(item);
 }
 
 function errorSummary(details){
@@ -1040,16 +1086,21 @@ function esc(v){
 }
 
 setInterval(async()=>{
-  if(document.visibilityState!=='visible'||refreshInProgress||!getOperatorKey()) return;
+  if(refreshInProgress||!getOperatorKey()) return;
   const pending=trackingRows.filter(needsStatusRefresh);
   if(!pending.length) return;
 
   refreshInProgress=true;
   try{
-    for(const item of pending.slice(0,10)){
-      try{await refreshOne(item.id,item.cpf,false)}catch{}
-    }
+    await refreshPendingBatch(pending.slice(0,100));
   }finally{
     refreshInProgress=false;
   }
-},30000);
+},AUTO_REFRESH_MS);
+
+window.addEventListener('focus',()=>{
+  if(!refreshInProgress&&getOperatorKey()&&trackingRows.some(needsStatusRefresh)){
+    refreshInProgress=true;
+    refreshPendingBatch(trackingRows.filter(needsStatusRefresh).slice(0,100)).catch(()=>{}).finally(()=>{refreshInProgress=false;});
+  }
+});
