@@ -67,6 +67,25 @@ const templateColumns=[
 ];
 const required=templateColumns.filter(column=>column!=='complemento');
 
+function normalizeCpf(value){
+  let digits=String(value??'').replace(/\D/g,'');
+  const leadingZeroAdded=digits.length===10;
+  if(leadingZeroAdded) digits='0'+digits;
+  return {
+    valid:digits.length===11,
+    digits,
+    formatted:digits.length===11
+      ? digits.slice(0,3)+'.'+digits.slice(3,6)+'.'+digits.slice(6,9)+'-'+digits.slice(9)
+      : String(value??'').trim(),
+    leadingZeroAdded
+  };
+}
+
+function isBusinessConfirmedResponse(response){
+  return Boolean(response?.businessConfirmed||response?.processing?.readyForNextStep||
+    isMarketplaceScholarshipApplied({businessOutcome:response?.processing?.businessOutcome||null}));
+}
+
 const TRACKING_KEY='marketplace_tracking_v2';
 const BATCHES_KEY='marketplace_batches_v1';
 const MAX_SAVED_BATCHES=8;
@@ -199,7 +218,11 @@ validar.onclick=()=>{
         );
       }
       const dataRows=XLSX.utils.sheet_to_json(ws,{defval:'',range:1,header:templateColumns})
-        .filter(row=>templateColumns.some(column=>String(row[column]??'').trim()!==''));
+        .filter(row=>templateColumns.some(column=>String(row[column]??'').trim()!==''))
+        .map(row=>{
+          const cpf=normalizeCpf(row.cpf);
+          return {...row,cpf:cpf.valid?cpf.formatted:row.cpf,_cpfLeadingZeroAdded:cpf.leadingZeroAdded};
+        });
       if(dataRows.length>MAX_BATCH_SIZE){
         throw new Error('A planilha possui '+dataRows.length+' linhas. O limite por carga é '+MAX_BATCH_SIZE+'.');
       }
@@ -209,7 +232,10 @@ validar.onclick=()=>{
 
       tbody.innerHTML=dataRows.map((r,i)=>{
         const miss=required.filter(k=>String(r[k]??'').trim()==='');
-        const good=miss.length===0;
+        const cpf=normalizeCpf(r.cpf);
+        const problems=[...miss.map(x=>'Falta: '+x)];
+        if(!cpf.valid) problems.push('CPF deve ter 10 ou 11 dígitos');
+        const good=problems.length===0;
         if(good) validRows.push(r); else bad++;
 
         return '<tr>'+
@@ -219,7 +245,7 @@ validar.onclick=()=>{
           '<td>'+esc(r.businessKeyOferta)+'</td>'+
           '<td>Automático (DMH)</td>'+
           '<td class="'+(good?'ok':'bad')+'">'+(good?'PRONTO':'ERRO')+'</td>'+
-          '<td>'+miss.map(x=>'Falta: '+esc(x)).join('<br>')+'</td>'+
+          '<td>'+problems.map(esc).join('<br>')+(r._cpfLeadingZeroAdded?'<span class="ok">Zero inicial restaurado automaticamente</span>':'')+'</td>'+
         '</tr>';
       }).join('');
 
@@ -344,12 +370,16 @@ enviar.onclick=async()=>{
     });
 
     const succeeded=results.filter(x=>x.ok);
+    const confirmed=succeeded.filter(x=>isBusinessConfirmedResponse(x.response));
+    const pending=succeeded.filter(x=>!isBusinessConfirmedResponse(x.response));
     const failed=results.filter(x=>!x.ok);
     finishBatch(batch.id,succeeded.length,failed.length+previewRejected.length);
     finalBox.classList.remove('hidden');
     finalResult.innerHTML=
-      '<div class="'+((failed.length||previewRejected.length)?'warn':'success')+'"><b>Lote processado.</b><br>'+
-      succeeded.length+' inscrição(ões) aceita(s), '+failed.length+' com falha no envio e '+previewRejected.length+' bloqueada(s) na validação DMH.'+
+      '<div class="'+((failed.length||previewRejected.length||pending.length)?'warn':'success')+'"><b>Envio concluído.</b><br>'+
+      succeeded.length+' solicitação(ões) recebida(s) pela API: '+confirmed.length+' confirmada(s) com inscrição/condição e '+pending.length+' ainda aguardando confirmação. '+
+      failed.length+' com falha no envio e '+previewRejected.length+' bloqueada(s) na validação DMH.'+
+      (pending.length?'<br><b>Atenção:</b> recebimento pela API não significa inscrição ou bolsa concluída. Acompanhe as pendentes no Histórico.':'')+
       (failed.length?'<br>As linhas com falha podem ser corrigidas e reenviadas em uma nova planilha.':'')+'</div>'+historyButton();
     raw.textContent=JSON.stringify(results.map(x=>x.ok?{linha:x.index+2,ok:true,response:x.response}:{linha:x.index+2,ok:false,error:x.error.message}),null,2);
     renderTracking();
