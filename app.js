@@ -658,7 +658,12 @@ statusTbody.addEventListener('click',async e=>{
 
 async function refreshOne(id,cpf,showMessage){
   try{
-    const r=await callApi('status',null,getOperatorKey(),{enrollmentId:String(id),cpf:String(cpf||'')});
+    const tracked=trackingRows.find(item=>String(item.id)===String(id))||{};
+    const r=await callApi('status',null,getOperatorKey(),{
+      enrollmentId:String(id),
+      cpf:String(cpf||''),
+      businessKeyOferta:String(tracked.businessKeyOferta||'')
+    });
     applyStatusResponse(String(id),String(cpf||''),r);
     const status=String(r.processing?.status||'PROCESSING').toUpperCase();
     const data=r.processing?.data||null;
@@ -704,6 +709,8 @@ function applyStatusResponse(id,cpf,r){
     status:String(processing.status||'PROCESSING').toUpperCase(),
     finished:Boolean(processing.finished),quoteReady:Boolean(processing.quoteReady),
     readyForNextStep:Boolean(processing.readyForNextStep),quote:processing.quote||null,
+    resolvedEnrollmentId:String(processing.resolvedEnrollmentId||''),
+    reconciledEnrollment:Boolean(processing.reconciledEnrollment),
     errorDetails:processing.errorDetails||null,businessOutcome:processing.businessOutcome||null,
     academicResult:processing.academicResult||null,condition:processing.condition||null,
     checkedAt:r.checkedAt||new Date().toISOString()
@@ -714,7 +721,11 @@ function applyStatusResponse(id,cpf,r){
 async function refreshPendingBatch(items){
   if(!items.length) return;
   const response=await callApi('status-batch',null,getOperatorKey(),{
-    items:items.slice(0,100).map(item=>({enrollmentId:String(item.id),cpf:String(item.cpf||'')}))
+    items:items.slice(0,100).map(item=>({
+      enrollmentId:String(item.id),
+      cpf:String(item.cpf||''),
+      businessKeyOferta:String(item.businessKeyOferta||'')
+    }))
   });
   (response.results||[]).forEach(result=>{
     if(result.ok&&result.enrollmentId) applyStatusResponse(result.enrollmentId,result.cpf||'',result);
@@ -786,7 +797,10 @@ function renderTracking(){
     const status=String(item.status||'PROCESSING').toUpperCase();
 
     return '<tr>'+
-      '<td class="nowrap"><b>'+esc(item.id)+'</b></td>'+
+      '<td class="nowrap"><b>'+esc(item.id)+'</b>'+
+        (item.resolvedEnrollmentId&&String(item.resolvedEnrollmentId)!==String(item.id)
+          ? '<br><span class="muted">Cotação na inscrição '+esc(item.resolvedEnrollmentId)+'</span>'
+          : '')+'</td>'+
       '<td class="nowrap">'+esc(item.cpf||'')+'</td>'+
       '<td>'+esc(item.nome||'')+'</td>'+
       '<td>'+esc(item.canalNome||item.canalId||'')+'</td>'+
