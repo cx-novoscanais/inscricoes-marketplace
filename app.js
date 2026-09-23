@@ -662,7 +662,8 @@ async function refreshOne(id,cpf,showMessage){
     const r=await callApi('status',null,getOperatorKey(),{
       enrollmentId:String(id),
       cpf:String(cpf||''),
-      businessKeyOferta:String(tracked.businessKeyOferta||'')
+      businessKeyOferta:String(tracked.businessKeyOferta||''),
+      createdAt:String(tracked.createdAt||'')
     });
     applyStatusResponse(String(id),String(cpf||''),r);
     const status=String(r.processing?.status||'PROCESSING').toUpperCase();
@@ -724,7 +725,8 @@ async function refreshPendingBatch(items){
     items:items.slice(0,100).map(item=>({
       enrollmentId:String(item.id),
       cpf:String(item.cpf||''),
-      businessKeyOferta:String(item.businessKeyOferta||'')
+      businessKeyOferta:String(item.businessKeyOferta||''),
+      createdAt:String(item.createdAt||'')
     }))
   });
   (response.results||[]).forEach(result=>{
@@ -819,7 +821,7 @@ function renderReports(){
   const quoteCount=trackingRows.filter(x=>x.quoteReady).length;
   const noQuoteCount=trackingRows.filter(x=>String(x.status).toUpperCase()==='SUCCESS'&&!x.quoteReady).length;
   const errorCount=trackingRows.filter(x=>
-    ['ERROR','FAILED','FAILURE','CANCELLED','CANCELED'].includes(String(x.status).toUpperCase()) &&
+    ['ERROR','FAILED','FAILURE','CANCELLED','CANCELED','NOT_CONSOLIDATED'].includes(String(x.status).toUpperCase()) &&
     !isMarketplaceScholarshipApplied(x)
   ).length;
 
@@ -1012,7 +1014,7 @@ function errorDetailsHtml(details){
 
 function errorReasonCell(item){
   const status=String(item?.status||'').toUpperCase();
-  if(!['ERROR','FAILED','FAILURE','CANCELLED','CANCELED'].includes(status)) return '';
+  if(!['ERROR','FAILED','FAILURE','CANCELLED','CANCELED','NOT_CONSOLIDATED'].includes(status)) return '';
   const summary=errorSummary(item?.errorDetails);
   const text=summary||'Motivo não informado pela API';
   return '<div class="error-reason" title="'+esc(text)+'"><b>Motivo:</b> '+esc(text)+'</div>';
@@ -1060,13 +1062,13 @@ function isFinalStatus(status){
 function isFinalWithQuote(item){
   if(isMarketplaceScholarshipApplied(item) && item?.businessOutcome?.existingEnrollmentId) return true;
   const status=String(item?.status||'').toUpperCase();
-  if(['ERROR','FAILED','FAILURE','CANCELLED','CANCELED'].includes(status)) return true;
+  if(['ERROR','FAILED','FAILURE','CANCELLED','CANCELED','NOT_CONSOLIDATED'].includes(status)) return true;
   return status==='SUCCESS'&&Boolean(item?.quoteReady);
 }
 
 function needsStatusRefresh(item){
   const status=String(item?.status||'').toUpperCase();
-  const isError=['ERROR','FAILED','FAILURE','CANCELLED','CANCELED'].includes(status);
+  const isError=['ERROR','FAILED','FAILURE','CANCELLED','CANCELED','NOT_CONSOLIDATED'].includes(status);
   if(isMarketplaceScholarshipApplied(item) && !item?.businessOutcome?.existingEnrollmentId) return true;
   if(isError && !isMarketplaceScholarshipApplied(item) && !errorSummary(item?.errorDetails)) return true;
   return !isFinalWithQuote(item);
