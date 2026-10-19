@@ -95,6 +95,8 @@ const SUBMIT_CONCURRENCY=3;
 const OPERATOR_SESSION_KEY='marketplace_operator_key_session';
 const AUTO_REFRESH_MS=60000;
 let validRows=[];
+let previewRows=[];
+let dmhExportRows=[];
 let offerApprovedRows=[];
 let offerPreviewResults=[];
 let trackingRows=loadTracking();
@@ -227,6 +229,8 @@ validar.onclick=()=>{
         throw new Error('A planilha possui '+dataRows.length+' linhas. O limite por carga é '+MAX_BATCH_SIZE+'.');
       }
       validRows=[];
+      previewRows=[];
+      dmhExportRows=[];
       offerApprovedRows=[];
       let bad=0;
 
@@ -237,6 +241,7 @@ validar.onclick=()=>{
         if(!cpf.valid) problems.push('CPF deve ter 10 ou 11 dígitos');
         const good=problems.length===0;
         if(good) validRows.push(r); else bad++;
+        previewRows.push({...r,_linhaPlanilha:i+2,_statusValidacao:good?'PRONTO':'ERRO',_erroValidacao:problems.join('; ')});
 
         return '<tr>'+
           '<td>'+(i+2)+'</td>'+
@@ -290,6 +295,18 @@ oferta.onclick=async()=>{
     },progress=>updateBatchProgress(progress,validRows.length,0,progress,0));
 
     offerPreviewResults=results;
+    dmhExportRows=results.map(x=>({
+      linhaPlanilha:(x.index??0)+2,
+      cpf:String(x.row?.cpf||''),
+      nome:String(x.row?.nome||''),
+      businessKeyOferta:String(x.row?.businessKeyOferta||''),
+      resultadoDMH:x.ok?'OFERTA CONFIRMADA':'ERRO NO DMH',
+      idDMH:x.ok?String(x.response?.offer?.idDMH||''):'',
+      ofertaDMH:x.ok?String(x.response?.offer?.name||''):'',
+      erroResumido:x.ok?'':summarizeValidationError(x.error?.message||'Erro não identificado'),
+      erroTecnico:x.ok?'':String(x.error?.message||'Erro não identificado'),
+      canaisEncontrados:Array.isArray(x.error?.offerDiagnostic?.availableChannels)?x.error.offerDiagnostic.availableChannels.join(', '):''
+    }));
     offerApprovedRows=results.filter(x=>x.ok).map(x=>x.row);
     const rejected=results.filter(x=>!x.ok);
     const first=results.find(x=>x.ok)?.response||{};
@@ -313,8 +330,8 @@ oferta.onclick=async()=>{
         const idDMH=diagnostic?.offers?.[0]?.idDMH
           ? ' ID DMH: '+diagnostic.offers[0].idDMH+'.'
           : '';
-        return 'Linha '+(x.index+2)+': '+esc(x.error.message+channels+idDMH);
-      }).join('<br>')+(rejected.length>20?'<br>… e mais '+(rejected.length-20):'')+'</div>':'');
+        return 'Linha '+(x.index+2)+': '+esc(summarizeValidationError(x.error.message))+esc(channels+idDMH);
+      }).join('<br>')+'</div>':'');
 
     dmhBox.classList.remove('hidden');
     enviar.disabled=offerApprovedRows.length===0;
@@ -397,6 +414,80 @@ enviar.onclick=async()=>{
     enviar.textContent='Lote enviado';
   }
 };
+
+function summarizeValidationError(message){
+  const text=String(message||'Erro não identificado').replace(/\s+/g,' ').trim();
+  if(/Business Key não encontrada no catálogo/i.test(text)) return 'Oferta não localizada no catálogo do DMH';
+  if(/vigência está encerrada|fora da vigência/i.test(text)) return 'Oferta fora da vigência';
+  if(/vigência ainda não começou/i.test(text)) return 'Oferta ainda não vigente';
+  if(/está inativa no DMH/i.test(text)) return 'Oferta inativa no DMH';
+  if(/disponível somente nos canais|não está cadastrado para esta oferta/i.test(text)) return 'Oferta não vinculada ao canal selecionado';
+  if(/origem não é ATHENAS/i.test(text)) return 'Origem da oferta incompatível';
+  if(/mais de uma oferta/i.test(text)) return 'Mais de uma oferta encontrada; precisa de validação';
+  if(/oferta financeira correspondente|oferta financeira não corresponde/i.test(text)) return 'Oferta financeira ausente ou incompatível';
+  if(/API Key|não autenticada|sem permissão/i.test(text)) return 'Falha de autenticação ou permissão no DMH';
+  if(/CPF/i.test(text) && /inválido/i.test(text)) return 'CPF inválido';
+  if(/HTTP \d{3}/i.test(text)) return 'Falha na consulta ao serviço DMH';
+  return text.length>150?text.slice(0,147)+'...':text;
+}
+
+function downloadValidationWorkbook(stage){
+  if(!window.XLSX) return alert('Não foi possível carregar o recurso de Excel. Atualize a página e tente novamente.');
+  const afterDmh=stage==='dmh';
+  const dmhByLine=new Map(dmhExportRows.map(item=>[Number(item.linhaPlanilha),item]));
+  const details=previewRows.map(row=>{
+    const dmh=dmhByLine.get(Number(row._linhaPlanilha));
+    return {
+      'Linha da planilha':row._linhaPlanilha,
+      'CPF':row.cpf||'',
+      'Nome':row.nome||'',
+      'E-mail':row.email||'',
+      'Celular':row.celular||'',
+      'Business Key':row.businessKeyOferta||'',
+      'Validação dos dados':row._statusValidacao||'',
+      'Erro nos dados':row._erroValidacao||'',
+      'Resultado DMH':afterDmh?(dmh?.resultadoDMH||(row._statusValidacao==='ERRO'?'NÃO CONSULTADA — corrigir dados':'NÃO CONSULTADA')):'',
+      'Resumo do erro DMH':afterDmh?(dmh?.erroResumido||''):'',
+      'Detalhe técnico DMH':afterDmh?(dmh?.erroTecnico||''):'',
+      'ID DMH':afterDmh?(dmh?.idDMH||''):'',
+      'Oferta encontrada':afterDmh?(dmh?.ofertaDMH||''):'',
+      'Canais encontrados':afterDmh?(dmh?.canaisEncontrados||''):''
+    };
+  });
+  const errors=details.filter(row=>row['Validação dos dados']==='ERRO'||row['Resultado DMH']==='ERRO NO DMH');
+  const summary=[
+    ['Relatório',afterDmh?'Prévia e retorno do DMH':'Prévia da planilha'],
+    ['Data de geração',new Date().toLocaleString('pt-BR')],
+    ['Total de linhas',details.length],
+    ['Prontas na validação',details.filter(row=>row['Validação dos dados']==='PRONTO').length],
+    ['Erros de preenchimento',details.filter(row=>row['Validação dos dados']==='ERRO').length],
+    ['Ofertas confirmadas no DMH',afterDmh?dmhExportRows.filter(row=>row.resultadoDMH==='OFERTA CONFIRMADA').length:'Ainda não consultado'],
+    ['Erros no DMH',afterDmh?dmhExportRows.filter(row=>row.resultadoDMH==='ERRO NO DMH').length:'Ainda não consultado']
+  ];
+  const workbook=XLSX.utils.book_new();
+  const summarySheet=XLSX.utils.aoa_to_sheet(summary);
+  const detailSheet=XLSX.utils.json_to_sheet(details);
+  const errorSheet=XLSX.utils.json_to_sheet(errors.length?errors:[{'Resultado':'Nenhum erro identificado nesta etapa.'}]);
+  summarySheet['!cols']=[{wch:32},{wch:44}];
+  [detailSheet,errorSheet].forEach(sheet=>{
+    sheet['!autofilter']={ref:sheet['!ref']||'A1:A1'};
+    sheet['!freeze']={xSplit:0,ySplit:1};
+    sheet['!cols']=Object.keys(details[0]||{}).map(key=>({wch:Math.min(42,Math.max(14,key.length+2))}));
+  });
+  XLSX.utils.book_append_sheet(workbook,summarySheet,'Resumo');
+  XLSX.utils.book_append_sheet(workbook,detailSheet,'Todas as linhas');
+  XLSX.utils.book_append_sheet(workbook,errorSheet,'Somente erros');
+  const suffix=afterDmh?'com_retorno_dmh':'antes_dmh';
+  XLSX.writeFile(workbook,'marketplace_previa_'+suffix+'_'+new Date().toISOString().slice(0,10)+'.xlsx');
+}
+
+document.addEventListener('click',event=>{
+  if(event.target.closest('#baixarPrevia')) downloadValidationWorkbook('pre');
+  if(event.target.closest('#baixarRetornoDMH')){
+    if(!dmhExportRows.length) return alert('Consulte as ofertas no DMH antes de baixar o retorno.');
+    downloadValidationWorkbook('dmh');
+  }
+});
 
 let currentBatchToken='';
 
