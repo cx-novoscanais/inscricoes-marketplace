@@ -223,7 +223,7 @@ validar.onclick=()=>{
         .filter(row=>templateColumns.some(column=>String(row[column]??'').trim()!==''))
         .map(row=>{
           const cpf=normalizeCpf(row.cpf);
-          return {...row,cpf:cpf.valid?cpf.formatted:row.cpf,_cpfLeadingZeroAdded:cpf.leadingZeroAdded};
+          return {...row,cpf:cpf.valid?cpf.formatted:row.cpf,_cpfLeadingZeroAdded:cpf.leadingZeroAdded,_linhaPlanilha:undefined};
         });
       if(dataRows.length>MAX_BATCH_SIZE){
         throw new Error('A planilha possui '+dataRows.length+' linhas. O limite por carga é '+MAX_BATCH_SIZE+'.');
@@ -241,7 +241,8 @@ validar.onclick=()=>{
         if(!cpf.valid) problems.push('CPF deve ter 10 ou 11 dígitos');
         const good=problems.length===0;
         if(good) validRows.push(r); else bad++;
-        previewRows.push({...r,_linhaPlanilha:i+2,_statusValidacao:good?'PRONTO':'ERRO',_erroValidacao:problems.join('; ')});
+        r._linhaPlanilha=i+2;
+        previewRows.push({...r,_statusValidacao:good?'PRONTO':'ERRO',_erroValidacao:problems.join('; ')});
 
         return '<tr>'+
           '<td>'+(i+2)+'</td>'+
@@ -296,7 +297,7 @@ oferta.onclick=async()=>{
 
     offerPreviewResults=results;
     dmhExportRows=results.map(x=>({
-      linhaPlanilha:(x.index??0)+2,
+      linhaPlanilha:Number(x.row?._linhaPlanilha||(x.index??0)+2),
       cpf:String(x.row?.cpf||''),
       nome:String(x.row?.nome||''),
       businessKeyOferta:String(x.row?.businessKeyOferta||''),
@@ -330,7 +331,7 @@ oferta.onclick=async()=>{
         const idDMH=diagnostic?.offers?.[0]?.idDMH
           ? ' ID DMH: '+diagnostic.offers[0].idDMH+'.'
           : '';
-        return 'Linha '+(x.index+2)+': '+esc(summarizeValidationError(x.error.message))+esc(channels+idDMH);
+        return 'Linha '+Number(x.row?._linhaPlanilha||((x.index||0)+2))+': '+esc(summarizeValidationError(x.error.message))+esc(channels+idDMH);
       }).join('<br>')+'</div>':'');
 
     dmhBox.classList.remove('hidden');
