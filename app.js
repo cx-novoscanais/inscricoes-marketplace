@@ -332,7 +332,7 @@ oferta.onclick=async()=>{
           ? ' ID DMH: '+diagnostic.offers[0].idDMH+'.'
           : '';
         return 'Linha '+Number(x.row?._linhaPlanilha||((x.index||0)+2))+': '+esc(summarizeValidationError(x.error.message))+esc(channels+idDMH);
-      }).join('<br>')+'</div>':'');
+      }).join('<br>')+(rejected.length>20?'<br>… e mais '+(rejected.length-20)+' linha(s). Baixe o Excel para ver todos os erros.':'')+'</div>':'');
 
     dmhBox.classList.remove('hidden');
     enviar.disabled=offerApprovedRows.length===0;
