@@ -48,6 +48,20 @@ const reportChannelTbody=$('reportChannelTbody');
 const reportHealth=$('reportHealth');
 const reportUpdatedAt=$('reportUpdatedAt');
 const reportBatchTbody=$('reportBatchTbody');
+const catalogRefresh=$('catalogRefresh');
+const catalogSearch=$('catalogSearch');
+const catalogChannel=$('catalogChannel');
+const catalogFinanceFilter=$('catalogFinanceFilter');
+const catalogExport=$('catalogExport');
+const catalogTbody=$('catalogTbody');
+const catalogTotal=$('catalogTotal');
+const catalogFinancial=$('catalogFinancial');
+const catalogNoFinancial=$('catalogNoFinancial');
+const catalogCheckedAt=$('catalogCheckedAt');
+const catalogCountText=$('catalogCountText');
+const catalogMessage=$('catalogMessage');
+let catalogOffers=[];
+let catalogMeta=null;
 
 let channels=[
 [99,'Vai de bolsa - Marketplace'],[97,'Digdu - Marketplace'],[96,'Vou de bolsa - Marketplace'],
@@ -109,6 +123,7 @@ function init(){
   bindNavigation();
   bindKeySync();
   loadChannels();
+  bindCatalog();
   renderTracking();
   renderReports();
   const savedKey=sessionStorage.getItem(OPERATOR_SESSION_KEY)||'';
@@ -136,7 +151,8 @@ function switchView(view){
   const map={
     nova:$('viewNova'),
     historico:$('viewHistorico'),
-    relatorios:$('viewRelatorios')
+    relatorios:$('viewRelatorios'),
+    catalogo:$('viewCatalogo')
   };
 
   Object.entries(map).forEach(([name,el])=>el?.classList.toggle('active',name===view));
@@ -146,7 +162,184 @@ function switchView(view){
 
   if(view==='historico') renderTracking();
   if(view==='relatorios') renderReports();
+  if(view==='catalogo' && !catalogOffers.length) { /* load on explicit user action */ }
   window.scrollTo({top:0,behavior:'smooth'});
+}
+
+function bindCatalog(){
+  catalogRefresh?.addEventListener('click',loadOfferCatalog);
+  catalogSearch?.addEventListener('input',renderCatalog);
+  catalogChannel?.addEventListener('change',renderCatalog);
+  catalogFinanceFilter?.addEventListener('change',renderCatalog);
+  catalogExport?.addEventListener('click',exportOfferCatalog);
+  if(catalogChannel){
+    catalogChannel.innerHTML='<option value="">Todos os canais</option>'+channels.slice().sort((a,b)=>String(a[1]).localeCompare(String(b[1]),'pt-BR')).map(c=>'<option value="'+c[0]+'">'+esc(c[1])+' — '+c[0]+'</option>').join('');
+  }
+}
+
+function catalogMoney(value){
+  if(value===null||value===undefined||value==='') return '—';
+  const n=Number(value);
+  return Number.isFinite(n)?n.toLocaleString('pt-BR',{style:'currency',currency:'BRL'}):String(value);
+}
+function catalogDate(value){
+  if(!value) return '—';
+  const d=new Date(value);
+  return Number.isNaN(d.getTime())?String(value):d.toLocaleDateString('pt-BR');
+}
+function catalogChannels(offer){
+  return Array.isArray(offer.channels)?offer.channels.map(c=>(c.name||('Canal '+c.id))+' ('+c.id+')').join(', '):'—';
+}
+function catalogFinancialValue(offer,field){
+  const f=Array.isArray(offer.financialOffers)?offer.financialOffers[0]:null;
+  return f?.[field]??'';
+}
+function catalogEscapeJson(value){
+  if(value===undefined||value===null) return '';
+  return typeof value==='object'?JSON.stringify(value):String(value);
+}
+function catalogFlatten(obj,prefix='',out={}){
+  if(obj===null||obj===undefined){if(prefix)out[prefix]='';return out;}
+  if(Array.isArray(obj)){out[prefix]=JSON.stringify(obj);return out;}
+  if(typeof obj!=='object'){if(prefix)out[prefix]=obj;return out;}
+  const keys=Object.keys(obj);
+  if(!keys.length&&prefix)out[prefix]='{}';
+  for(const key of keys){
+    const path=prefix?prefix+'.'+key:key;
+    const value=obj[key];
+    if(value && typeof value==='object' && !Array.isArray(value)) catalogFlatten(value,path,out);
+    else out[path]=Array.isArray(value)?JSON.stringify(value):(value??'');
+  }
+  return out;
+}
+async function loadOfferCatalog(){
+  const key=getOperatorKey();
+  if(!key){
+    catalogMessage.classList.remove('hidden');
+    catalogMessage.textContent='Informe a chave de operação na tela Nova carga antes de consultar o DMH.';
+    switchView('nova');
+    opkey?.focus();
+    return;
+  }
+  catalogRefresh.disabled=true;
+  catalogRefresh.textContent='Consultando...';
+  catalogMessage.classList.remove('hidden');
+  catalogMessage.textContent='Consultando ofertas acadêmicas e financeiras no DMH. Isso pode levar alguns instantes.';
+  try{
+    const response=await fetch(processUrl,{
+      method:'POST',
+      headers:{'content-type':'application/json','x-operator-key':key},
+      body:JSON.stringify({action:'catalog'})
+    });
+    const data=await response.json();
+    if(!response.ok||!data.ok) throw new Error(data.error||'Não foi possível consultar o catálogo.');
+    catalogOffers=Array.isArray(data.offers)?data.offers:[];
+    catalogMeta=data;
+    catalogTotal.textContent=Number(data.totalAcademic??catalogOffers.length).toLocaleString('pt-BR');
+    catalogFinancial.textContent=catalogOffers.filter(o=>o.hasFinancialOffer).length.toLocaleString('pt-BR');
+    catalogNoFinancial.textContent=catalogOffers.filter(o=>!o.hasFinancialOffer).length.toLocaleString('pt-BR');
+    catalogCheckedAt.textContent=new Date(data.checkedAt||Date.now()).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
+    catalogMessage.textContent=data.truncated
+      ? 'Atenção: o DMH informou mais registros do que o limite retornado nesta consulta. O Excel incluirá os registros recebidos; será necessário paginar o catálogo para garantir cobertura total.'
+      : 'Consulta concluída. A exportação incluirá os campos acadêmicos e financeiros retornados pelo DMH.';
+    catalogExport.disabled=!catalogOffers.length;
+    renderCatalog();
+  }catch(error){
+    catalogMessage.textContent='Não foi possível carregar o catálogo: '+(error?.message||String(error));
+    catalogOffers=[];
+    catalogMeta=null;
+    catalogExport.disabled=true;
+    catalogTbody.innerHTML='<tr><td colspan="11">Catálogo indisponível. Confira a publicação da função de backend e tente novamente.</td></tr>';
+    catalogCountText.textContent='Nenhuma oferta carregada.';
+  }finally{
+    catalogMessage.classList.remove('hidden');
+    catalogRefresh.disabled=false;
+    catalogRefresh.textContent='Consultar DMH';
+  }
+}
+function filteredCatalogOffers(){
+  const q=String(catalogSearch?.value||'').trim().toLowerCase();
+  const channel=String(catalogChannel?.value||'');
+  const finance=String(catalogFinanceFilter?.value||'');
+  return catalogOffers.filter(o=>{
+    const text=[o.idDMH,o.businessKey,o.name,o.source].join(' ').toLowerCase();
+    if(q&&!text.includes(q))return false;
+    if(channel&&!Array.isArray(o.channels?.map(c=>String(c.id)))||false)return false;
+    if(channel&&!o.channels?.some(c=>String(c.id)===channel))return false;
+    if(finance==='yes'&&!o.hasFinancialOffer)return false;
+    if(finance==='no'&&o.hasFinancialOffer)return false;
+    return true;
+  });
+}
+function renderCatalog(){
+  if(!catalogTbody)return;
+  const rows=filteredCatalogOffers();
+  catalogCountText.textContent=rows.length.toLocaleString('pt-BR')+' oferta(s) exibida(s) de '+catalogOffers.length.toLocaleString('pt-BR')+' carregada(s).';
+  if(!rows.length){
+    catalogTbody.innerHTML='<tr><td colspan="11">'+(catalogOffers.length?'Nenhuma oferta corresponde aos filtros.':'Consulte o DMH para carregar o catálogo.')+'</td></tr>';
+    return;
+  }
+  catalogTbody.innerHTML=rows.map(o=>{
+    const fin=Array.isArray(o.financialOffers)?o.financialOffers[0]||{}:{};
+    const inst=fin.installments;
+    const instText=Array.isArray(inst)?inst.length+' registro(s)':(inst===undefined||inst===null?'—':catalogEscapeJson(inst));
+    const channels=esc(catalogChannels(o));
+    return '<tr>'+
+      '<td>'+esc(o.idDMH||'—')+'</td>'+
+      '<td class="catalog-bk">'+esc(o.businessKey||'—')+'</td>'+
+      '<td>'+esc(o.name||'—')+'</td>'+
+      '<td>'+esc(o.source||'—')+'</td>'+
+      '<td>'+channels+'</td>'+
+      '<td>'+esc(catalogDate(o.validFrom))+' – '+esc(catalogDate(o.expiredAt))+'</td>'+
+      '<td>'+esc(catalogMoney(fin.baseValue))+'</td>'+
+      '<td>'+esc(catalogMoney(fin.offerValue))+'</td>'+
+      '<td>'+esc(catalogMoney(fin.enrollmentValue))+'</td>'+
+      '<td>'+esc(instText)+'</td>'+
+      '<td>'+(o.hasFinancialOffer?'<span class="catalog-pill good">Encontrado</span>':'<span class="catalog-pill bad">Não encontrado</span>')+'</td>'+
+      '</tr>';
+  }).join('');
+}
+function exportOfferCatalog(){
+  if(!window.XLSX||!catalogOffers.length)return alert('Consulte o DMH antes de exportar.');
+  const rows=filteredCatalogOffers();
+  const academicRows=rows.map(o=>{
+    const base={};
+    for(const [key,value] of Object.entries(o)) {
+      if(key==='financialOffers') continue;
+      base[key]=value&&typeof value==='object'?JSON.stringify(value):value;
+    }
+    base.financialOffersJson=JSON.stringify(o.financialOffers||[]);
+    return {...catalogFlatten(o.rawAcademic||{},'academic'),...catalogFlatten(base,'catalog')};
+  });
+  const financialRows=[];
+  rows.forEach(o=>(o.financialOffers||[]).forEach((f,index)=>{
+    financialRows.push({idDMH:o.idDMH,businessKey:o.businessKey,offerName:o.name,financialIndex:index+1,...catalogFlatten(f,'financial')});
+  }));
+  const wb=XLSX.utils.book_new();
+  const summary=XLSX.utils.aoa_to_sheet([
+    ['Relatório','Catálogo de ofertas DMH'],
+    ['Data da consulta',catalogMeta?.checkedAt||''],
+    ['Ofertas acadêmicas retornadas',catalogOffers.length],
+    ['Ofertas com financeiro',catalogOffers.filter(o=>o.hasFinancialOffer).length],
+    ['Ofertas sem financeiro',catalogOffers.filter(o=>!o.hasFinancialOffer).length],
+    ['Total informado pelo DMH',catalogMeta?.totalAcademic??catalogOffers.length],
+    ['Registros financeiros retornados',catalogMeta?.returnedFinancial??''],
+    ['Consulta limitada',catalogMeta?.truncated?'SIM':'NÃO'],
+    ['Filtro aplicado',catalogSearch?.value||'Nenhum'],
+    ['Canal selecionado',catalogChannel?.value||'Todos'],
+    ['Filtro financeiro',catalogFinanceFilter?.selectedOptions?.[0]?.textContent||'Todas']
+  ]);
+  const academic=XLSX.utils.json_to_sheet(academicRows.length?academicRows:[{resultado:'Nenhuma oferta'}]);
+  const finance=XLSX.utils.json_to_sheet(financialRows.length?financialRows:[{resultado:'Nenhuma oferta financeira associada'}]);
+  [academic,finance].forEach(ws=>{
+    ws['!autofilter']={ref:ws['!ref']||'A1:A1'};
+    ws['!freeze']={xSplit:0,ySplit:1};
+    ws['!cols']=Object.keys(academicRows[0]||{}).map(k=>({wch:Math.min(42,Math.max(14,k.length+2))}));
+  });
+  XLSX.utils.book_append_sheet(wb,summary,'Resumo');
+  XLSX.utils.book_append_sheet(wb,academic,'Ofertas acadêmicas');
+  XLSX.utils.book_append_sheet(wb,finance,'Ofertas financeiras');
+  XLSX.writeFile(wb,'catalogo_ofertas_dmh_'+new Date().toISOString().slice(0,10)+'.xlsx');
 }
 
 function bindKeySync(){
