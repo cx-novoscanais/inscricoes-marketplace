@@ -31,6 +31,10 @@
           <span class="nav-icon">▥</span>
           <span>Relatórios</span>
         </button>
+        <button class="nav-item" data-view="catalogo">
+          <span class="nav-icon">▤</span>
+          <span>Catálogo de ofertas</span>
+        </button>
       </nav>
 
       <div class="sidebar-footer">
@@ -299,9 +303,57 @@
         </section>
       </section>
 
+      <section id="viewCatalogo" class="app-view">
+        <header class="page-header">
+          <div>
+            <p class="eyebrow">CONSULTA DMH</p>
+            <h1>Catálogo de ofertas</h1>
+            <p class="page-subtitle">Consulte ofertas vigentes e seus dados acadêmicos e financeiros retornados pela integração.</p>
+          </div>
+          <button id="catalogRefresh" class="btn btn-primary">Consultar DMH</button>
+        </header>
+        <div class="notice">
+          <span class="notice-icon">i</span>
+          <div>O catálogo usa a chave de operação já informada na tela Nova carga. A consulta não cria inscrições. A exportação inclui os campos brutos retornados pelo DMH.</div>
+        </div>
+        <div class="metrics metrics-4">
+          <article class="metric"><span>Ofertas retornadas</span><strong id="catalogTotal">—</strong></article>
+          <article class="metric"><span>Com dados financeiros</span><strong id="catalogFinancial">—</strong></article>
+          <article class="metric"><span>Sem dados financeiros</span><strong id="catalogNoFinancial">—</strong></article>
+          <article class="metric"><span>Última consulta</span><strong id="catalogCheckedAt" class="catalog-time">—</strong></article>
+        </div>
+        <section class="panel">
+          <div class="catalog-filters">
+            <div class="field">
+              <label for="catalogSearch">Buscar oferta</label>
+              <input id="catalogSearch" placeholder="Business Key, nome ou ID DMH">
+            </div>
+            <div class="field">
+              <label for="catalogChannel">Canal</label>
+              <select id="catalogChannel"><option value="">Todos os canais</option></select>
+            </div>
+            <div class="field">
+              <label for="catalogFinanceFilter">Dados financeiros</label>
+              <select id="catalogFinanceFilter"><option value="">Todas</option><option value="yes">Com dados financeiros</option><option value="no">Sem dados financeiros</option></select>
+            </div>
+          </div>
+          <div class="panel-header simple catalog-actions">
+            <div><h2>Ofertas disponíveis</h2><p id="catalogCountText">Clique em “Consultar DMH” para carregar o catálogo.</p></div>
+            <button id="catalogExport" class="btn btn-secondary" disabled>Exportar Excel completo</button>
+          </div>
+          <div id="catalogMessage" class="status-message hidden"></div>
+          <div class="table-wrap">
+            <table class="catalog-table">
+              <thead><tr><th>ID DMH</th><th>Business Key</th><th>Oferta</th><th>Origem</th><th>Canais</th><th>Vigência</th><th>Valor base</th><th>Valor oferta</th><th>Matrícula</th><th>Parcelas</th><th>Financeiro</th></tr></thead>
+              <tbody id="catalogTbody"><tr><td colspan="11">Consulte o DMH para carregar as ofertas.</td></tr></tbody>
+            </table>
+          </div>
+        </section>
+      </section>
+
       <footer class="footer">Inscrições Marketplace • Cogna Novos Canais</footer>
     </main>
   </div>
-  <script src="./app.js?v=20261019-erros-excel2"></script>
+  <script src="./app.js?v=20261020-catalogo-dmh"></script>
 </body>
 </html>
