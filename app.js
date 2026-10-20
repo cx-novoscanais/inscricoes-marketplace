@@ -264,7 +264,6 @@ function filteredCatalogOffers(){
   return catalogOffers.filter(o=>{
     const text=[o.idDMH,o.businessKey,o.name,o.source].join(' ').toLowerCase();
     if(q&&!text.includes(q))return false;
-    if(channel&&!Array.isArray(o.channels?.map(c=>String(c.id)))||false)return false;
     if(channel&&!o.channels?.some(c=>String(c.id)===channel))return false;
     if(finance==='yes'&&!o.hasFinancialOffer)return false;
     if(finance==='no'&&o.hasFinancialOffer)return false;
