@@ -393,9 +393,9 @@ async function exportOfferCatalog(){
   if(catalogExporting)return;
   const key=getOperatorKey();if(!key)return alert('Informe a chave de operação na tela Nova carga.');
   const total=Number(catalogMeta?.totalAcademic||catalogOffers.length);
-  const batchLimit=50000;
+  const batchLimit=5000;
   const estimatedParts=Math.max(1,Math.ceil(total/batchLimit));
-  const confirmText='O DMH informa '+total.toLocaleString('pt-BR')+' ofertas. Para evitar travamentos, o catálogo será baixado em vários arquivos Excel de até 50.000 ofertas cada, em vez de montar um ZIP gigante na memória. O navegador poderá pedir autorização para vários downloads. Deseja continuar?';
+  const confirmText='O DMH informa '+total.toLocaleString('pt-BR')+' ofertas. Para evitar travamentos, o catálogo será baixado em vários arquivos Excel de até 5.000 ofertas cada, em vez de montar um ZIP gigante na memória. O navegador poderá pedir autorização para vários downloads. Deseja continuar?';
   if(!confirm(confirmText))return;
 
   catalogExporting=true;catalogExport.disabled=true;catalogRefresh.disabled=true;
