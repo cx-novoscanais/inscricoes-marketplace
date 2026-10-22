@@ -390,35 +390,45 @@ function createCatalogWorkbook(rows,partNumber,totalParts){
 }
 async function exportOfferCatalog(){
   if(!window.XLSX||!catalogOffers.length)return alert('Consulte o DMH antes de exportar.');
-  if(!window.JSZip)return alert('Não foi possível carregar o componente de compactação. Atualize a página e tente novamente.');
   if(catalogExporting)return;
   const key=getOperatorKey();if(!key)return alert('Informe a chave de operação na tela Nova carga.');
   const total=Number(catalogMeta?.totalAcademic||catalogOffers.length);
-  const estimatedParts=Math.max(1,Math.ceil(total/50000));
-  const confirmText='O DMH informa '+total.toLocaleString('pt-BR')+' ofertas. O Excel será dividido em arquivos de até 50.000 ofertas e reunido em um ZIP. A exportação pode demorar. Deseja continuar?';
+  const batchLimit=50000;
+  const estimatedParts=Math.max(1,Math.ceil(total/batchLimit));
+  const confirmText='O DMH informa '+total.toLocaleString('pt-BR')+' ofertas. Para evitar travamentos, o catálogo será baixado em vários arquivos Excel de até 50.000 ofertas cada, em vez de montar um ZIP gigante na memória. O navegador poderá pedir autorização para vários downloads. Deseja continuar?';
   if(!confirm(confirmText))return;
+
   catalogExporting=true;catalogExport.disabled=true;catalogRefresh.disabled=true;
   if(catalogLoadMoreButton){catalogLoadMoreButton.disabled=true;catalogLoadMoreButton.textContent='Exportação em andamento...';}
-  const zip=new JSZip();let batch=[];let part=0;let scanned=0;let matched=0;let scrollId=catalogScrollId;let hasMore=catalogHasMore;
-  const batchLimit=50000;
+  let batch=[];let part=0;let scanned=0;let matched=0;let scrollId=catalogScrollId;let hasMore=catalogHasMore;
   const applyCurrentFilters=rows=>filteredCatalogOffers(rows);
-  async function writePart(){
+
+  async function downloadPart(){
     if(!batch.length)return;
     part++;
-    const bytes=createCatalogWorkbook(batch,part,estimatedParts);
-    zip.file('catalogo_ofertas_parte_'+String(part).padStart(3,'0')+'.xlsx',bytes);
-    batch=[];
-    catalogMessage.textContent='Preparando arquivo '+part+' de aproximadamente '+estimatedParts+'... '+scanned.toLocaleString('pt-BR')+' ofertas lidas; '+matched.toLocaleString('pt-BR')+' incluídas após os filtros.';
+    catalogMessage.textContent='Gerando arquivo Excel '+part+'... '+scanned.toLocaleString('pt-BR')+' ofertas lidas; '+matched.toLocaleString('pt-BR')+' incluídas após os filtros.';
     await new Promise(resolve=>setTimeout(resolve,0));
+    const bytes=createCatalogWorkbook(batch,part,estimatedParts);
+    const blob=new Blob([bytes],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a');
+    a.href=url;
+    a.download='catalogo_ofertas_dmh_parte_'+String(part).padStart(3,'0')+'.xlsx';
+    document.body.appendChild(a);a.click();a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url),120000);
+    batch=[];
+    catalogMessage.textContent='Arquivo '+part+' baixado. Progresso: '+scanned.toLocaleString('pt-BR')+' ofertas lidas de aproximadamente '+total.toLocaleString('pt-BR')+'; '+matched.toLocaleString('pt-BR')+' incluídas.';
+    // Dá tempo ao navegador para iniciar o download e liberar memória antes do próximo arquivo.
+    await new Promise(resolve=>setTimeout(resolve,1200));
   }
+
   try{
     catalogMessage.classList.remove('hidden');
-    // Reaproveita a página já carregada; não precisa consultá-la novamente.
     let rows=applyCurrentFilters(catalogOffers);
     scanned+=catalogOffers.length;matched+=rows.length;batch.push(...rows);
     while(batch.length>=batchLimit){
       const remainder=batch.splice(batchLimit);
-      await writePart();
+      await downloadPart();
       batch=remainder;
     }
     while(hasMore&&scrollId){
@@ -431,22 +441,20 @@ async function exportOfferCatalog(){
       while(pos<rows.length){
         const capacity=batchLimit-batch.length;
         const take=rows.slice(pos,pos+capacity);batch.push(...take);pos+=take.length;
-        if(batch.length>=batchLimit)await writePart();
+        if(batch.length>=batchLimit)await downloadPart();
       }
-      catalogMessage.textContent='Lendo DMH: '+scanned.toLocaleString('pt-BR')+' de '+total.toLocaleString('pt-BR')+' ofertas. '+matched.toLocaleString('pt-BR')+' incluídas após os filtros.';
+      catalogMessage.textContent='Lendo DMH: '+scanned.toLocaleString('pt-BR')+' de aproximadamente '+total.toLocaleString('pt-BR')+' ofertas. '+matched.toLocaleString('pt-BR')+' incluídas após os filtros.';
       await new Promise(resolve=>setTimeout(resolve,0));
     }
-    await writePart();
-    if(!part){batch=[{idDMH:'',businessKey:'',name:'Nenhuma oferta corresponde aos filtros.'}];part=1;const bytes=createCatalogWorkbook(batch,part,1);zip.file('catalogo_ofertas_parte_001.xlsx',bytes);}
-    catalogMessage.textContent='Compactando '+part+' arquivo(s) Excel. Aguarde...';
-    const blob=await zip.generateAsync({type:'blob',compression:'DEFLATE',compressionOptions:{level:3}},meta=>{
-      catalogMessage.textContent='Compactando arquivos Excel: '+Math.round(meta.percent)+'%';
-    });
-    const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='catalogo_ofertas_dmh_completo_'+new Date().toISOString().slice(0,10)+'.zip';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),60000);
+    await downloadPart();
+    if(!part){
+      batch=[{idDMH:'',businessKey:'',name:'Nenhuma oferta corresponde aos filtros.'}];
+      await downloadPart();
+    }
     catalogScrollId=null;catalogHasMore=false;
-    catalogMessage.textContent='Exportação concluída: '+scanned.toLocaleString('pt-BR')+' ofertas lidas, '+matched.toLocaleString('pt-BR')+' exportadas em '+part+' arquivo(s) Excel dentro do ZIP.';
+    catalogMessage.textContent='Exportação concluída: '+scanned.toLocaleString('pt-BR')+' ofertas lidas; '+matched.toLocaleString('pt-BR')+' exportadas em '+part+' arquivo(s) Excel. Confira a pasta Downloads.';
   }catch(error){
-    catalogMessage.textContent='A exportação foi interrompida: '+(error?.message||String(error))+'. Clique em “Consultar DMH” para reiniciar a sessão antes de tentar novamente.';
+    catalogMessage.textContent='A exportação foi interrompida após '+part+' arquivo(s): '+(error?.message||String(error))+'. Os arquivos já baixados continuam disponíveis na pasta Downloads. Clique em “Consultar DMH” para reiniciar a sessão antes de tentar novamente.';
     catalogScrollId=null;catalogHasMore=false;
   }finally{
     catalogExporting=false;catalogExport.disabled=!catalogOffers.length;catalogRefresh.disabled=false;
