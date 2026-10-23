@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Inscrições Marketplace</title>
   <meta name="description" content="Sistema de inscrições Marketplace">
-  <link rel="stylesheet" href="./styles.css?v=20261020-catalogo-dmh">
+  <link rel="stylesheet" href="./styles.css?v=20261023-vitrine-catalogo">
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
 </head>
@@ -324,10 +324,18 @@
           <article class="metric"><span>Última consulta</span><strong id="catalogCheckedAt" class="catalog-time">—</strong></article>
         </div>
         <section class="panel">
-          <div class="catalog-filters">
+          <div class="catalog-filters catalog-filters-cards">
             <div class="field">
               <label for="catalogSearch">Buscar oferta</label>
-              <input id="catalogSearch" placeholder="Business Key, nome ou ID DMH">
+              <input id="catalogSearch" placeholder="Nome da oferta, Business Key ou ID DMH">
+            </div>
+            <div class="field">
+              <label for="catalogCourseFilter">Curso</label>
+              <input id="catalogCourseFilter" placeholder="Digite o nome do curso">
+            </div>
+            <div class="field">
+              <label for="catalogCityFilter">Cidade</label>
+              <select id="catalogCityFilter"><option value="">Todas as cidades</option></select>
             </div>
             <div class="field">
               <label for="catalogChannel">Canal</label>
@@ -343,11 +351,8 @@
             <button id="catalogExport" class="btn btn-secondary" disabled>Exportar Excel completo (em partes)</button>
           </div>
           <div id="catalogMessage" class="status-message hidden"></div>
-          <div class="table-wrap">
-            <table class="catalog-table">
-              <thead><tr><th>ID DMH</th><th>Business Key</th><th>Oferta</th><th>Origem</th><th>Canais</th><th>Vigência</th><th>Valor base</th><th>Valor oferta</th><th>Matrícula</th><th>Parcelas</th><th>Financeiro</th></tr></thead>
-              <tbody id="catalogTbody"><tr><td colspan="11">Consulte o DMH para carregar as ofertas.</td></tr></tbody>
-            </table>
+          <div id="catalogCards" class="catalog-grid" aria-live="polite">
+            <div class="catalog-empty">Consulte o DMH para carregar as ofertas.</div>
           </div>
         </section>
       </section>
@@ -355,6 +360,6 @@
       <footer class="footer">Inscrições Marketplace • Cogna Novos Canais</footer>
     </main>
   </div>
-  <script src="./app.js?v=20261022-export-5000"></script>
+  <script src="./app.js?v=20261023-vitrine-catalogo"></script>
 </body>
 </html>
