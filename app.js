@@ -196,7 +196,7 @@ function bindCatalog(){
     renderCatalog();
   });
   catalogChannel?.addEventListener('change',scheduleCatalogSearch);
-  catalogFinanceFilter?.addEventListener('change',renderCatalog);
+  catalogFinanceFilter?.addEventListener('change',scheduleCatalogSearch);
   catalogExport?.addEventListener('click',exportOfferCatalog);
   if(catalogChannel){
     catalogChannel.innerHTML='<option value="">Todos os canais</option>'+channels.slice().sort((a,b)=>String(a[1]).localeCompare(String(b[1]),'pt-BR')).map(c=>'<option value="'+c[0]+'">'+esc(c[1])+' — '+c[0]+'</option>').join('');
@@ -305,14 +305,15 @@ async function runCatalogSearch(){
   const course=String(catalogCourseFilter?.value||'').trim();
   const city=String(catalogCityFilter?.value||'').trim();
   const channelId=String(catalogChannel?.value||'').trim();
-  if(!q&&!course&&!city&&!channelId){await loadOfferCatalog();return;}
+  const financialFilter=String(catalogFinanceFilter?.value||'').trim();
+  if(!q&&!course&&!city&&!channelId&&!financialFilter){await loadOfferCatalog();return;}
   const requestId=++catalogSearchRequestId;
   catalogRefresh.disabled=true;
   catalogMessage.classList.remove('hidden');
   catalogMessage.textContent='Pesquisando em todo o catálogo DMH...';
   if(catalogLoadMoreButton)catalogLoadMoreButton.hidden=true;
   try{
-    const data=await catalogRequest('catalog-search',{q,course,city,channelId,pageSize:500});
+    const data=await catalogRequest('catalog-search',{q,course,city,channelId,financialFilter,pageSize:500});
     if(requestId!==catalogSearchRequestId)return;
     catalogOffers=Array.isArray(data.offers)?data.offers:[];
     catalogMeta=data;catalogScrollId=data.scrollId||null;
