@@ -354,8 +354,6 @@ function catalogCourse(offer){
     ])[0] || offer?.name || 'Curso não informado'
   ).trim();
 }
-  return String(offer?.name||catalogFieldValues(offer,['courseName','course','curso','nomeCurso','courseDescription','nomeDoCurso'])[0]||'Curso não informado').trim();
-}
 function catalogCity(offer){
   return catalogFieldValues(offer,['city','cityName','cidade','cidadeNome','municipality','municipalityName','municipio','municipioNome','cityDescription','municipalityDescription','cityLabel'])[0]||'';
 }
