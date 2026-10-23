@@ -186,17 +186,17 @@ function bindCatalog(){
     catalogCountText.insertAdjacentElement('afterend',catalogLoadMoreButton);
     catalogLoadMoreButton.addEventListener('click',loadNextCatalogPage);
   }
-  catalogSearch?.addEventListener('input',renderCatalog);
-  catalogCourseFilter?.addEventListener('input',renderCatalog);
-  catalogCityFilter?.addEventListener('change',renderCatalog);
+  catalogSearch?.addEventListener('input',scheduleCatalogSearch);
+  catalogCourseFilter?.addEventListener('input',scheduleCatalogSearch);
+  catalogCityFilter?.addEventListener('input',scheduleCatalogSearch);
   catalogCards?.addEventListener('change',event=>{
     const select=event.target.closest('[data-unit-select]');
     if(!select)return;
     catalogSelectedUnits.set(select.dataset.groupKey,select.value);
     renderCatalog();
   });
-  catalogChannel?.addEventListener('change',renderCatalog);
-  catalogFinanceFilter?.addEventListener('change',renderCatalog);
+  catalogChannel?.addEventListener('change',scheduleCatalogSearch);
+  catalogFinanceFilter?.addEventListener('change',scheduleCatalogSearch);
   catalogExport?.addEventListener('click',exportOfferCatalog);
   if(catalogChannel){
     catalogChannel.innerHTML='<option value="">Todos os canais</option>'+channels.slice().sort((a,b)=>String(a[1]).localeCompare(String(b[1]),'pt-BR')).map(c=>'<option value="'+c[0]+'">'+esc(c[1])+' — '+c[0]+'</option>').join('');
@@ -293,6 +293,45 @@ async function loadOfferCatalog(){
     catalogMessage.classList.remove('hidden');catalogRefresh.disabled=false;catalogRefresh.textContent='Consultar DMH';
   }
 }
+let catalogSearchTimer=null;
+let catalogSearchRequestId=0;
+function scheduleCatalogSearch(){
+  if(!catalogMeta||catalogExporting)return;
+  if(catalogSearchTimer)clearTimeout(catalogSearchTimer);
+  catalogSearchTimer=setTimeout(runCatalogSearch,450);
+}
+async function runCatalogSearch(){
+  const q=String(catalogSearch?.value||'').trim();
+  const course=String(catalogCourseFilter?.value||'').trim();
+  const city=String(catalogCityFilter?.value||'').trim();
+  const channelId=String(catalogChannel?.value||'').trim();
+  const financialFilter=String(catalogFinanceFilter?.value||'').trim();
+  if(!q&&!course&&!city&&!channelId&&!financialFilter){await loadOfferCatalog();return;}
+  const requestId=++catalogSearchRequestId;
+  catalogRefresh.disabled=true;
+  catalogMessage.classList.remove('hidden');
+  catalogMessage.textContent='Pesquisando em todo o catálogo DMH...';
+  if(catalogLoadMoreButton)catalogLoadMoreButton.hidden=true;
+  try{
+    const data=await catalogRequest('catalog-search',{q,course,city,channelId,financialFilter,pageSize:500});
+    if(requestId!==catalogSearchRequestId)return;
+    catalogOffers=Array.isArray(data.offers)?data.offers:[];
+    catalogMeta=data;catalogScrollId=data.scrollId||null;
+    catalogLoadedCount=catalogOffers.length;
+    catalogHasMore=Boolean(data.hasMore&&catalogScrollId);
+    updateCatalogCounters(data,true);
+    catalogExport.disabled=!catalogOffers.length;
+    renderCatalog();
+    catalogMessage.textContent='Busca concluída: '+Number(data.totalAcademic||0).toLocaleString('pt-BR')+' ofertas correspondem aos critérios no DMH. Exibindo '+catalogOffers.length.toLocaleString('pt-BR')+' nesta página.';
+    if(catalogLoadMoreButton)catalogLoadMoreButton.hidden=!catalogHasMore;
+  }catch(error){
+    if(requestId!==catalogSearchRequestId)return;
+    catalogMessage.textContent='Não foi possível filtrar o catálogo: '+(error?.message||String(error));
+  }finally{
+    if(requestId===catalogSearchRequestId)catalogRefresh.disabled=false;
+  }
+}
+
 async function loadNextCatalogPage(){
   if(!catalogScrollId||!catalogHasMore||catalogExporting)return;
   catalogLoadMoreButton.disabled=true;catalogLoadMoreButton.textContent='Carregando...';
@@ -345,13 +384,22 @@ function catalogFieldValues(offer,aliases){
   return values;
 }
 function catalogCourse(offer){
-  return String(offer?.name||catalogFieldValues(offer,['courseName','course','curso','nomeCurso','courseDescription','nomeDoCurso'])[0]||'Curso não informado').trim();
+  const aliases=['courseName','course','curso','nomeCurso','courseDescription','nomeDoCurso','name','title','description','label'];
+  const fromCourse=catalogFieldValues({rawAcademic:offer?.course},aliases)[0]||'';
+  const fromSource=catalogFieldValues(offer,aliases)[0]||'';
+  return String(fromCourse||fromSource||offer?.name||'Curso não informado').trim();
 }
 function catalogCity(offer){
-  return catalogFieldValues(offer,['city','cityName','cidade','cidadeNome','municipality','municipalityName','municipio','municipioNome','cityDescription','municipalityDescription','cityLabel'])[0]||'';
+  const aliases=['city','cityName','cidade','cidadeNome','municipality','municipalityName','municipio','municipioNome','cityDescription','municipalityDescription','cityLabel','locationCity','unitCity','campusCity','cityOfUnit'];
+  const fromUnit=catalogFieldValues({rawAcademic:offer?.unit},aliases)[0]||'';
+  const fromSchedule=catalogFieldValues({rawAcademic:offer?.scheduleList},aliases)[0]||'';
+  return fromUnit||fromSchedule||catalogFieldValues(offer,aliases)[0]||'';
 }
 function catalogUnits(offer){
-  return catalogFieldValues(offer,['unit','unitName','unidade','unidadeNome','campus','campusName','campusDescription','unitDescription','schoolUnit','schoolUnitName','campusUnitName','unitLabel','unidadeDescricao']);
+  const aliases=['unit','unitName','unidade','unidadeNome','campus','campusName','campusDescription','unitDescription','schoolUnit','schoolUnitName','campusUnitName','unitLabel','unidadeDescricao','name','title','description','label'];
+  const fromUnit=catalogFieldValues({rawAcademic:offer?.unit},aliases)[0]||'';
+  const fromSource=catalogFieldValues(offer,aliases)[0]||'';
+  return [...new Set([fromUnit,fromSource].filter(Boolean))];
 }
 function catalogUnit(offer){
   return catalogUnits(offer)[0]||'';
@@ -371,7 +419,7 @@ function catalogGroupKey(offer,index=0){
   return JSON.stringify([course.toLocaleLowerCase('pt-BR'),city.toLocaleLowerCase('pt-BR'),catalogModality(offer).toLocaleLowerCase('pt-BR'),catalogShift(offer).toLocaleLowerCase('pt-BR')]);
 }
 function updateCatalogCityOptions(){
-  if(!catalogCityFilter)return;
+  if(!catalogCityFilter||catalogCityFilter.tagName!=='SELECT')return;
   const previous=catalogCityFilter.value;
   const cities=[...new Set(catalogOffers.map(catalogCity).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'pt-BR'));
   catalogCityFilter.innerHTML='<option value="">Todas as cidades</option>'+cities.map(city=>'<option value="'+esc(city)+'">'+esc(city)+'</option>').join('');
@@ -387,7 +435,7 @@ function filteredCatalogOffers(source=catalogOffers){
     const text=[o.idDMH,o.businessKey,o.name,o.source].join(' ').toLowerCase();
     if(q&&!text.includes(q))return false;
     if(course&&!catalogCourse(o).toLowerCase().includes(course))return false;
-    if(city&&catalogCity(o)!==city)return false;
+    if(city&&!catalogCity(o).toLowerCase().includes(city.toLowerCase()))return false;
     if(channel&&!o.channels?.some(c=>String(c.id)===channel))return false;
     if(finance==='yes'&&!o.hasFinancialOffer)return false;
     if(finance==='no'&&o.hasFinancialOffer)return false;
@@ -429,7 +477,7 @@ function renderCatalog(){
     const city=catalogCity(selected);
     const modality=catalogModality(selected);
     const shift=catalogShift(selected);
-    const price=fin.offerValue!==undefined&&fin.offerValue!==null&&fin.offerValue!==''?fin.offerValue:fin.baseValue;
+    const price=selected.catalogPrice??([fin.offerValue,fin.baseValue,fin.subscriptionValue,fin.firstValue,fin.enrollmentValue].map(Number).find(value=>Number.isFinite(value)&&value>0)??'');
     const unitControl=group.offers.length>1
       ? '<select class="catalog-unit-select" data-unit-select data-group-key="'+esc(group.key)+'" aria-label="Escolher unidade">'+group.offers.map((offer,index)=>{
           const identity=catalogOfferIdentity(offer,index);
