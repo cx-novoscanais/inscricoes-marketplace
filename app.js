@@ -477,9 +477,7 @@ function renderCatalog(){
     const city=catalogCity(selected);
     const modality=catalogModality(selected);
     const shift=catalogShift(selected);
-    const offerPrice=Number(fin.offerValue);
-    const basePrice=Number(fin.baseValue);
-    const price=Number.isFinite(offerPrice)&&offerPrice>0?fin.offerValue:(Number.isFinite(basePrice)&&basePrice>0?fin.baseValue:'');
+    const price=selected.catalogPrice??([fin.offerValue,fin.baseValue,fin.subscriptionValue,fin.firstValue,fin.enrollmentValue].map(Number).find(value=>Number.isFinite(value)&&value>0)??'');
     const unitControl=group.offers.length>1
       ? '<select class="catalog-unit-select" data-unit-select data-group-key="'+esc(group.key)+'" aria-label="Escolher unidade">'+group.offers.map((offer,index)=>{
           const identity=catalogOfferIdentity(offer,index);
