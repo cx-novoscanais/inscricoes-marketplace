@@ -315,7 +315,7 @@ async function loadNextCatalogPage(){
 }
 
 function catalogNormalizeKey(value){
-  return String(value??'').normalize('NFD').replace(/[\\u0300-\\u036f]/g,'').replace(/[^a-z0-9]/gi,'').toLowerCase();
+  return String(value??'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]/gi,'').toLowerCase();
 }
 function catalogFieldValues(offer,aliases){
   const accepted=new Set(aliases.map(catalogNormalizeKey));
@@ -453,7 +453,7 @@ function renderCatalog(){
         '<p><strong>Business Key</strong><code>'+esc(selected.businessKey||'—')+'</code></p>'+
         '<p><strong>ID DMH:</strong> '+esc(selected.idDMH||'—')+'</p>'+
         '<p><strong>Matrícula:</strong> '+esc(catalogMoney(fin.enrollmentValue))+'</p>'+
-        '<p><strong>Parcelas:</strong> '+esc(Array.isArray(fin.installments)?fin.installments.length+' registro(s'):(fin.installments??'—'))+'</p>'+
+        '<p><strong>Parcelas:</strong> '+esc(Array.isArray(fin.installments)?fin.installments.length+' registro(s)'):(fin.installments??'—'))+'</p>'+
         '<p><strong>Canais:</strong> '+esc(channelNames)+'</p>'+
       '</details>'+
     '</article>';
