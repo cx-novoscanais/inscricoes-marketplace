@@ -453,7 +453,7 @@ function renderCatalog(){
         '<p><strong>Business Key</strong><code>'+esc(selected.businessKey||'—')+'</code></p>'+
         '<p><strong>ID DMH:</strong> '+esc(selected.idDMH||'—')+'</p>'+
         '<p><strong>Matrícula:</strong> '+esc(catalogMoney(fin.enrollmentValue))+'</p>'+
-        '<p><strong>Parcelas:</strong> '+esc(Array.isArray(fin.installments)?fin.installments.length+' registro(s)'):(fin.installments??'—'))+'</p>'+
+        '<p><strong>Parcelas:</strong> '+esc(Array.isArray(fin.installments)?fin.installments.length+' registro(s)':(fin.installments??'—'))+'</p>'+
         '<p><strong>Canais:</strong> '+esc(channelNames)+'</p>'+
       '</details>'+
     '</article>';
