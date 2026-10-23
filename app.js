@@ -345,6 +345,15 @@ function catalogFieldValues(offer,aliases){
   return values;
 }
 function catalogCourse(offer){
+  return String(
+    catalogFieldValues(offer, [
+      'courseName', 'course', 'curso', 'nomeCurso',
+      'courseDescription', 'nomeDoCurso',
+      'academicCourseName', 'courseTitle',
+      'courseLabel', 'descricaoCurso'
+    ])[0] || offer?.name || 'Curso não informado'
+  ).trim();
+}
   return String(offer?.name||catalogFieldValues(offer,['courseName','course','curso','nomeCurso','courseDescription','nomeDoCurso'])[0]||'Curso não informado').trim();
 }
 function catalogCity(offer){
@@ -429,7 +438,21 @@ function renderCatalog(){
     const city=catalogCity(selected);
     const modality=catalogModality(selected);
     const shift=catalogShift(selected);
-    const price=fin.offerValue!==undefined&&fin.offerValue!==null&&fin.offerValue!==''?fin.offerValue:fin.baseValue;
+    const installments = Array.isArray(fin.installments)
+  ? fin.installments
+  : [];
+
+const firstInstallment =
+  installments.find(item => Number(item?.netValue) > 0)
+  || installments[0]
+  || {};
+
+const price =
+  firstInstallment.netValue
+  ?? fin.subscriptionValue
+  ?? fin.firstValue
+  ?? fin.offerValue
+  ?? fin.baseValue;
     const unitControl=group.offers.length>1
       ? '<select class="catalog-unit-select" data-unit-select data-group-key="'+esc(group.key)+'" aria-label="Escolher unidade">'+group.offers.map((offer,index)=>{
           const identity=catalogOfferIdentity(offer,index);
