@@ -303,11 +303,14 @@ function mapCatalogOffers(academicHits,financialHits){
 
 async function getOfferCatalog(){
   const now=new Date().toISOString();
-  const offerQuery={bool:{filter:[
-    {term:{recordActive:true}},
-    {range:{validFrom:{lte:"now"}}},
-    {range:{expiredAt:{gte:"now"}}}
-  ]}};
+  const offerQuery={function_score:{
+    query:{bool:{filter:[
+      {term:{recordActive:true}},
+      {range:{validFrom:{lte:"now"}}},
+      {range:{expiredAt:{gte:"now"}}}
+    ]}},
+    random_score:{seed:Math.floor(Date.now()/86400000),field:"_seq_no"}
+  }};
   const [academic,financialCount]=await Promise.all([
     searchCatalogIndex(DMH_URL,"Catálogo acadêmico DMH",offerQuery,{size:CATALOG_PAGE_SIZE,scroll:true}),
     searchCatalogIndex(DMH_FINANCIAL_URL,"Contagem financeira DMH",{match_all:{}},{size:0})
@@ -326,19 +329,32 @@ async function getOfferCatalog(){
 }
 
 async function getOfferCatalogSearch(body){
-  const q=txt(body.q),course=txt(body.course),city=txt(body.city),channelId=txt(body.channelId);
+  const q=txt(body.q),course=txt(body.course),city=txt(body.city),channelId=txt(body.channelId),financialFilter=txt(body.financialFilter);
   const pageSize=Math.min(1000,Math.max(100,Number(body.pageSize)||500));
   const filters=[{term:{recordActive:true}},{range:{validFrom:{lte:"now"}}},{range:{expiredAt:{gte:"now"}}}];
-  const must=[];
+  const must=[],mustNot=[];
   if(q)must.push({simple_query_string:{query:q,fields:["name^4","businessKey^4","course.*^3","modality.*","unit.*","turn.*","scheduleList.*","salesChannels.businessKey"],default_operator:"and",analyze_wildcard:true}});
   if(course)must.push({simple_query_string:{query:course,fields:["course.*^4","name^2","*course*"],default_operator:"and",analyze_wildcard:true}});
   if(city)must.push({simple_query_string:{query:city,fields:["unit.*","scheduleList.*","*city*","*municip*","*campus*","*location*"],default_operator:"and",analyze_wildcard:true}});
   if(channelId)filters.push({bool:{should:[{term:{"salesChannels.businessKey.keyword":channelId}},{term:{"salesChannels.businessKey":Number(channelId)}}],minimum_should_match:1}});
-  const query={bool:{filter:filters,...(must.length?{must}:{})}};
+  if(financialFilter==="yes"||financialFilter==="no"){
+    const financialIndex=await searchCatalogIndex(DMH_FINANCIAL_URL,"Catálogo financeiro DMH",{match_all:{}},{size:10000});
+    const financialIds=[...new Set(financialIndex.hits.flatMap(hit=>[txt(hit?._source?.offerSimulationId),txt(hit?._id)]).filter(Boolean))];
+    if(financialFilter==="yes"){
+      if(!financialIds.length)return {ok:true,mode:"CATALOG_SEARCH",checkedAt:new Date().toISOString(),totalAcademic:0,returnedAcademic:0,returnedFinancial:0,pageSize,scrollId:null,hasMore:false,truncated:false,offers:[]};
+      filters.push({terms:{_id:financialIds}});
+    }else if(financialIds.length){
+      mustNot.push({terms:{_id:financialIds}});
+    }
+  }
+  const query={function_score:{
+    query:{bool:{filter:filters,...(must.length?{must}:{}),...(mustNot.length?{must_not:mustNot}:{})}},
+    random_score:{seed:Math.floor(Date.now()/86400000),field:"_seq_no"}
+  }};
   const result=await searchCatalogIndex(DMH_URL,"Catálogo acadêmico DMH",query,{size:pageSize,scroll:true});
   const financialHits=await getFinancialHitsForAcademic(result.hits);
   const offers=mapCatalogOffers(result.hits,financialHits);
-  return {ok:true,mode:"CATALOG_SEARCH",checkedAt:new Date().toISOString(),filters:{q,course,city,channelId:channelId||null,recordActive:true,validFromLte:"now",expiredAtGte:"now"},totalAcademic:result.total,returnedAcademic:offers.length,returnedFinancial:financialHits.length,pageSize,scrollId:result.scrollId,hasMore:offers.length>0&&offers.length<result.total,truncated:result.total>offers.length,offers};
+  return {ok:true,mode:"CATALOG_SEARCH",checkedAt:new Date().toISOString(),filters:{q,course,city,channelId:channelId||null,financialFilter:financialFilter||null,recordActive:true,validFromLte:"now",expiredAtGte:"now"},totalAcademic:result.total,returnedAcademic:offers.length,returnedFinancial:financialHits.length,pageSize,scrollId:result.scrollId,hasMore:offers.length>0&&offers.length<result.total,truncated:result.total>offers.length,offers};
 }
 
 async function getOfferCatalogNext(body){
