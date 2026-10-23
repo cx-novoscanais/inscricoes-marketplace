@@ -53,7 +53,10 @@ const catalogSearch=$('catalogSearch');
 const catalogChannel=$('catalogChannel');
 const catalogFinanceFilter=$('catalogFinanceFilter');
 const catalogExport=$('catalogExport');
-const catalogTbody=$('catalogTbody');
+const catalogCards=$('catalogCards');
+const catalogCourseFilter=$('catalogCourseFilter');
+const catalogCityFilter=$('catalogCityFilter');
+const catalogSelectedUnits=new Map();
 const catalogTotal=$('catalogTotal');
 const catalogFinancial=$('catalogFinancial');
 const catalogNoFinancial=$('catalogNoFinancial');
@@ -184,6 +187,14 @@ function bindCatalog(){
     catalogLoadMoreButton.addEventListener('click',loadNextCatalogPage);
   }
   catalogSearch?.addEventListener('input',renderCatalog);
+  catalogCourseFilter?.addEventListener('input',renderCatalog);
+  catalogCityFilter?.addEventListener('change',renderCatalog);
+  catalogCards?.addEventListener('change',event=>{
+    const select=event.target.closest('[data-unit-select]');
+    if(!select)return;
+    catalogSelectedUnits.set(select.dataset.groupKey,select.value);
+    renderCatalog();
+  });
   catalogChannel?.addEventListener('change',renderCatalog);
   catalogFinanceFilter?.addEventListener('change',renderCatalog);
   catalogExport?.addEventListener('click',exportOfferCatalog);
@@ -269,14 +280,14 @@ async function loadOfferCatalog(){
     catalogLoadedCount=catalogOffers.length;
     catalogHasMore=Boolean(data.hasMore&&catalogScrollId);
     updateCatalogCounters(data,true);
-    catalogMessage.textContent='Primeira página carregada. O DMH informa '+Number(data.totalAcademic||0).toLocaleString('pt-BR')+' ofertas acadêmicas. A tabela e os indicadores financeiros refletem as páginas carregadas; use “Carregar próximas ofertas” para navegar ou “Exportar Excel completo” para gerar o catálogo integral em partes.';
+    catalogMessage.textContent='Primeira página carregada. O DMH informa '+Number(data.totalAcademic||0).toLocaleString('pt-BR')+' ofertas acadêmicas. Os cards e indicadores financeiros refletem as páginas carregadas; use “Carregar próximas ofertas” para navegar ou “Exportar Excel completo” para gerar o catálogo integral em partes.';
     catalogExport.disabled=!catalogOffers.length;
     renderCatalog();
   }catch(error){
     catalogMessage.textContent='Não foi possível carregar o catálogo: '+(error?.message||String(error));
     catalogOffers=[];catalogMeta=null;catalogScrollId=null;catalogLoadedCount=0;catalogHasMore=false;
     catalogExport.disabled=true;
-    catalogTbody.innerHTML='<tr><td colspan="11">Catálogo indisponível. Confira a publicação da função de backend e tente novamente.</td></tr>';
+    catalogCards.innerHTML='<div class="catalog-empty">Catálogo indisponível. Confira a publicação da função de backend e tente novamente.</div>';
     catalogCountText.textContent='Nenhuma oferta carregada.';
   }finally{
     catalogMessage.classList.remove('hidden');catalogRefresh.disabled=false;catalogRefresh.textContent='Consultar DMH';
@@ -303,45 +314,149 @@ async function loadNextCatalogPage(){
   }
 }
 
+function catalogNormalizeKey(value){
+  return String(value??'').normalize('NFD').replace(/[\\u0300-\\u036f]/g,'').replace(/[^a-z0-9]/gi,'').toLowerCase();
+}
+function catalogFieldValues(offer,aliases){
+  const accepted=new Set(aliases.map(catalogNormalizeKey));
+  const values=[];
+  const seen=new Set();
+  const add=value=>{
+    if(value===undefined||value===null)return;
+    if(typeof value==='object'){
+      if(Array.isArray(value)){value.forEach(add);return;}
+      const preferred=value.name??value.title??value.description??value.label??value.value??value.text;
+      if(preferred!==undefined&&preferred!==null)add(preferred);
+      return;
+    }
+    const text=String(value).trim();
+    if(text&&!seen.has(text)){seen.add(text);values.push(text);}
+  };
+  const walk=(node,depth=0)=>{
+    if(node===undefined||node===null||depth>9)return;
+    if(Array.isArray(node)){node.forEach(value=>walk(value,depth+1));return;}
+    if(typeof node!=='object')return;
+    for(const [key,value] of Object.entries(node)){
+      if(accepted.has(catalogNormalizeKey(key)))add(value);
+      if(value&&typeof value==='object')walk(value,depth+1);
+    }
+  };
+  walk(offer?.rawAcademic||offer);
+  return values;
+}
+function catalogCourse(offer){
+  return String(offer?.name||catalogFieldValues(offer,['courseName','course','curso','nomeCurso','courseDescription','nomeDoCurso'])[0]||'Curso não informado').trim();
+}
+function catalogCity(offer){
+  return catalogFieldValues(offer,['city','cityName','cidade','cidadeNome','municipality','municipalityName','municipio','municipioNome','cityDescription','municipalityDescription','cityLabel'])[0]||'';
+}
+function catalogUnits(offer){
+  return catalogFieldValues(offer,['unit','unitName','unidade','unidadeNome','campus','campusName','campusDescription','unitDescription','schoolUnit','schoolUnitName','campusUnitName','unitLabel','unidadeDescricao']);
+}
+function catalogUnit(offer){
+  return catalogUnits(offer)[0]||'';
+}
+function catalogModality(offer){
+  return catalogFieldValues(offer,['modality','modalityName','modalidade','tipoModalidade','teachingModality','modalityDescription'])[0]||'';
+}
+function catalogShift(offer){
+  return catalogFieldValues(offer,['shift','shiftName','turno','period','periodName','turnName','timeOfDay','timeOfDayName'])[0]||'';
+}
+function catalogOfferIdentity(offer,index=0){
+  return String(offer?.idDMH||offer?.businessKey||('catalog-offer-'+index));
+}
+function catalogGroupKey(offer,index=0){
+  const course=catalogCourse(offer),city=catalogCity(offer),unit=catalogUnit(offer);
+  if(!city||!unit)return 'single:'+catalogOfferIdentity(offer,index);
+  return JSON.stringify([course.toLocaleLowerCase('pt-BR'),city.toLocaleLowerCase('pt-BR'),catalogModality(offer).toLocaleLowerCase('pt-BR'),catalogShift(offer).toLocaleLowerCase('pt-BR')]);
+}
+function updateCatalogCityOptions(){
+  if(!catalogCityFilter)return;
+  const previous=catalogCityFilter.value;
+  const cities=[...new Set(catalogOffers.map(catalogCity).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'pt-BR'));
+  catalogCityFilter.innerHTML='<option value="">Todas as cidades</option>'+cities.map(city=>'<option value="'+esc(city)+'">'+esc(city)+'</option>').join('');
+  if(cities.includes(previous))catalogCityFilter.value=previous;
+}
 function filteredCatalogOffers(source=catalogOffers){
   const q=String(catalogSearch?.value||'').trim().toLowerCase();
+  const course=String(catalogCourseFilter?.value||'').trim().toLowerCase();
+  const city=String(catalogCityFilter?.value||'');
   const channel=String(catalogChannel?.value||'');
   const finance=String(catalogFinanceFilter?.value||'');
   return source.filter(o=>{
     const text=[o.idDMH,o.businessKey,o.name,o.source].join(' ').toLowerCase();
     if(q&&!text.includes(q))return false;
+    if(course&&!catalogCourse(o).toLowerCase().includes(course))return false;
+    if(city&&catalogCity(o)!==city)return false;
     if(channel&&!o.channels?.some(c=>String(c.id)===channel))return false;
     if(finance==='yes'&&!o.hasFinancialOffer)return false;
     if(finance==='no'&&o.hasFinancialOffer)return false;
     return true;
   });
 }
+function catalogCardGroups(rows){
+  const grouped=new Map();
+  rows.forEach((offer,index)=>{
+    const key=catalogGroupKey(offer,index);
+    if(!grouped.has(key))grouped.set(key,{key,offers:[]});
+    grouped.get(key).offers.push(offer);
+  });
+  return [...grouped.values()].map(group=>{
+    const byUnit=new Map();
+    group.offers.forEach((offer,index)=>{
+      const unit=catalogUnit(offer);
+      const key=unit||catalogOfferIdentity(offer,index);
+      if(!byUnit.has(key))byUnit.set(key,offer);
+    });
+    return {...group,offers:[...byUnit.values()]};
+  });
+}
 function renderCatalog(){
-  if(!catalogTbody)return;
+  if(!catalogCards)return;
+  updateCatalogCityOptions();
   const rows=filteredCatalogOffers();
   catalogCountText.textContent=rows.length.toLocaleString('pt-BR')+' oferta(s) exibida(s) de '+catalogOffers.length.toLocaleString('pt-BR')+' carregada(s).';
   if(!rows.length){
-    catalogTbody.innerHTML='<tr><td colspan="11">'+(catalogOffers.length?'Nenhuma oferta corresponde aos filtros.':'Consulte o DMH para carregar o catálogo.')+'</td></tr>';
+    catalogCards.innerHTML='<div class="catalog-empty">'+(catalogOffers.length?'Nenhuma oferta corresponde aos filtros.':'Consulte o DMH para carregar o catálogo.')+'</div>';
     return;
   }
-  catalogTbody.innerHTML=rows.map(o=>{
-    const fin=Array.isArray(o.financialOffers)?o.financialOffers[0]||{}:{};
-    const inst=fin.installments;
-    const instText=Array.isArray(inst)?inst.length+' registro(s)':(inst===undefined||inst===null?'—':catalogEscapeJson(inst));
-    const channels=esc(catalogChannels(o));
-    return '<tr>'+
-      '<td>'+esc(o.idDMH||'—')+'</td>'+
-      '<td class="catalog-bk">'+esc(o.businessKey||'—')+'</td>'+
-      '<td>'+esc(o.name||'—')+'</td>'+
-      '<td>'+esc(o.source||'—')+'</td>'+
-      '<td>'+channels+'</td>'+
-      '<td>'+esc(catalogDate(o.validFrom))+' – '+esc(catalogDate(o.expiredAt))+'</td>'+
-      '<td>'+esc(catalogMoney(fin.baseValue))+'</td>'+
-      '<td>'+esc(catalogMoney(fin.offerValue))+'</td>'+
-      '<td>'+esc(catalogMoney(fin.enrollmentValue))+'</td>'+
-      '<td>'+esc(instText)+'</td>'+
-      '<td>'+(o.hasFinancialOffer?'<span class="catalog-pill good">Encontrado</span>':'<span class="catalog-pill bad">Não encontrado</span>')+'</td>'+
-      '</tr>';
+  const groups=catalogCardGroups(rows);
+  catalogCards.innerHTML=groups.map(group=>{
+    const selectedKey=catalogSelectedUnits.get(group.key);
+    const selected=group.offers.find((offer,index)=>catalogOfferIdentity(offer,index)===selectedKey)||group.offers[0];
+    const fin=Array.isArray(selected.financialOffers)?selected.financialOffers[0]||{}:{};
+    const unit=catalogUnit(selected);
+    const city=catalogCity(selected);
+    const modality=catalogModality(selected);
+    const shift=catalogShift(selected);
+    const price=fin.offerValue!==undefined&&fin.offerValue!==null&&fin.offerValue!==''?fin.offerValue:fin.baseValue;
+    const unitControl=group.offers.length>1
+      ? '<select class="catalog-unit-select" data-unit-select data-group-key="'+esc(group.key)+'" aria-label="Escolher unidade">'+group.offers.map((offer,index)=>{
+          const identity=catalogOfferIdentity(offer,index);
+          const label=catalogUnit(offer)||('Unidade '+(index+1));
+          return '<option value="'+esc(identity)+'" '+(identity===catalogOfferIdentity(selected,group.offers.indexOf(selected))?'selected':'')+'>'+esc(label)+'</option>';
+        }).join('')+'</select>'
+      : '<strong>'+esc(unit||'Unidade não informada')+'</strong>';
+    const channelNames=catalogChannels(selected);
+    return '<article class="offer-card">'+
+      '<div class="offer-card-top"><span class="offer-origin">'+esc(selected.source||'Marketplace')+'</span><span class="catalog-pill '+(selected.hasFinancialOffer?'good':'bad')+'">'+(selected.hasFinancialOffer?'Dados financeiros':'Sem financeiro')+'</span></div>'+
+      '<h3>'+esc(catalogCourse(selected))+'</h3>'+
+      '<p class="offer-card-subtitle">'+[modality,shift].filter(Boolean).map(esc).join(' / ')+'</p>'+
+      '<div class="offer-price-label">'+(price!==undefined&&price!==null&&price!==''?'Valor da oferta':'Valor não informado')+'</div>'+
+      '<div class="offer-price">'+(price!==undefined&&price!==null&&price!==''?esc(catalogMoney(price)):'Consulte as condições')+'</div>'+
+      '<div class="offer-card-details">'+
+        '<div><span>Cidade</span><strong>'+esc(city||'Cidade não informada')+'</strong></div>'+
+        '<div><span>Unidade</span>'+unitControl+'</div>'+
+      '</div>'+
+      '<p class="offer-validity"><span>Vigência</span> '+esc(catalogDate(selected.validFrom))+' – '+esc(catalogDate(selected.expiredAt))+'</p>'+
+      '<details class="offer-more"><summary>Ver detalhes da oferta</summary>'+
+        '<p><strong>Business Key</strong><code>'+esc(selected.businessKey||'—')+'</code></p>'+
+        '<p><strong>ID DMH:</strong> '+esc(selected.idDMH||'—')+'</p>'+
+        '<p><strong>Matrícula:</strong> '+esc(catalogMoney(fin.enrollmentValue))+'</p>'+
+        '<p><strong>Parcelas:</strong> '+esc(Array.isArray(fin.installments)?fin.installments.length+' registro(s'):(fin.installments??'—'))+'</p>'+
+        '<p><strong>Canais:</strong> '+esc(channelNames)+'</p>'+
+      '</details>'+
+    '</article>';
   }).join('');
 }
 function catalogExportRows(rows){
