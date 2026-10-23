@@ -345,13 +345,22 @@ function catalogFieldValues(offer,aliases){
   return values;
 }
 function catalogCourse(offer){
-  return String(offer?.name||catalogFieldValues(offer,['courseName','course','curso','nomeCurso','courseDescription','nomeDoCurso'])[0]||'Curso não informado').trim();
+  const aliases=['courseName','course','curso','nomeCurso','courseDescription','nomeDoCurso','name','title','description','label'];
+  const fromCourse=catalogFieldValues({rawAcademic:offer?.course},aliases)[0]||'';
+  const fromSource=catalogFieldValues(offer,aliases)[0]||'';
+  return String(fromCourse||fromSource||offer?.name||'Curso não informado').trim();
 }
 function catalogCity(offer){
-  return catalogFieldValues(offer,['city','cityName','cidade','cidadeNome','municipality','municipalityName','municipio','municipioNome','cityDescription','municipalityDescription','cityLabel'])[0]||'';
+  const aliases=['city','cityName','cidade','cidadeNome','municipality','municipalityName','municipio','municipioNome','cityDescription','municipalityDescription','cityLabel','locationCity','unitCity','campusCity','cityOfUnit'];
+  const fromUnit=catalogFieldValues({rawAcademic:offer?.unit},aliases)[0]||'';
+  const fromSchedule=catalogFieldValues({rawAcademic:offer?.scheduleList},aliases)[0]||'';
+  return fromUnit||fromSchedule||catalogFieldValues(offer,aliases)[0]||'';
 }
 function catalogUnits(offer){
-  return catalogFieldValues(offer,['unit','unitName','unidade','unidadeNome','campus','campusName','campusDescription','unitDescription','schoolUnit','schoolUnitName','campusUnitName','unitLabel','unidadeDescricao']);
+  const aliases=['unit','unitName','unidade','unidadeNome','campus','campusName','campusDescription','unitDescription','schoolUnit','schoolUnitName','campusUnitName','unitLabel','unidadeDescricao','name','title','description','label'];
+  const fromUnit=catalogFieldValues({rawAcademic:offer?.unit},aliases)[0]||'';
+  const fromSource=catalogFieldValues(offer,aliases)[0]||'';
+  return [...new Set([fromUnit,fromSource].filter(Boolean))];
 }
 function catalogUnit(offer){
   return catalogUnits(offer)[0]||'';
@@ -429,7 +438,9 @@ function renderCatalog(){
     const city=catalogCity(selected);
     const modality=catalogModality(selected);
     const shift=catalogShift(selected);
-    const price=fin.offerValue!==undefined&&fin.offerValue!==null&&fin.offerValue!==''?fin.offerValue:fin.baseValue;
+    const offerPrice=Number(fin.offerValue);
+    const basePrice=Number(fin.baseValue);
+    const price=Number.isFinite(offerPrice)&&offerPrice>0?fin.offerValue:(Number.isFinite(basePrice)&&basePrice>0?fin.baseValue:'');
     const unitControl=group.offers.length>1
       ? '<select class="catalog-unit-select" data-unit-select data-group-key="'+esc(group.key)+'" aria-label="Escolher unidade">'+group.offers.map((offer,index)=>{
           const identity=catalogOfferIdentity(offer,index);
