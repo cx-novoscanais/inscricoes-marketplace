@@ -241,7 +241,7 @@ tbody tr:hover{background:#fafbfd}
 
 
 /* Catálogo de ofertas em cards */
-.catalog-filters-cards{grid-template-columns:minmax(190px,1.4fr) minmax(190px,1.2fr) minmax(160px,1fr) minmax(180px,1fr) minmax(170px,1fr)}
+.catalog-filters-cards{grid-template-columns:minmax(190px,1.35fr) minmax(180px,1.1fr) repeat(3,minmax(135px,.9fr)) minmax(170px,1fr) minmax(170px,1fr)}
 .catalog-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px;margin-top:6px}
 .offer-card{display:flex;flex-direction:column;min-width:0;padding:20px;background:#fff;border:1px solid var(--line);border-radius:16px;box-shadow:0 4px 14px rgba(16,42,72,.045);transition:box-shadow .18s ease,transform .18s ease}
 .offer-card:hover{box-shadow:0 10px 24px rgba(16,42,72,.09);transform:translateY(-2px)}
