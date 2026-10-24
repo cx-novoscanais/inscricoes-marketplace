@@ -55,7 +55,9 @@ const catalogFinanceFilter=$('catalogFinanceFilter');
 const catalogExport=$('catalogExport');
 const catalogCards=$('catalogCards');
 const catalogCourseFilter=$('catalogCourseFilter');
+const catalogStateFilter=$('catalogStateFilter');
 const catalogCityFilter=$('catalogCityFilter');
+const catalogUnitFilter=$('catalogUnitFilter');
 const catalogSelectedUnits=new Map();
 const catalogTotal=$('catalogTotal');
 const catalogFinancial=$('catalogFinancial');
@@ -188,7 +190,9 @@ function bindCatalog(){
   }
   catalogSearch?.addEventListener('input',renderCatalog);
   catalogCourseFilter?.addEventListener('input',renderCatalog);
-  catalogCityFilter?.addEventListener('change',renderCatalog);
+  catalogStateFilter?.addEventListener('change',()=>{if(catalogCityFilter)catalogCityFilter.value='';if(catalogUnitFilter)catalogUnitFilter.value='';renderCatalog();});
+  catalogCityFilter?.addEventListener('change',()=>{if(catalogUnitFilter)catalogUnitFilter.value='';renderCatalog();});
+  catalogUnitFilter?.addEventListener('change',renderCatalog);
   catalogCards?.addEventListener('change',event=>{
     const select=event.target.closest('[data-unit-select]');
     if(!select)return;
@@ -332,16 +336,21 @@ function catalogFieldValues(offer,aliases){
     const text=String(value).trim();
     if(text&&!seen.has(text)){seen.add(text);values.push(text);}
   };
+  const aliasesNormalized=[...accepted].filter(alias=>alias.length>=4);
   const walk=(node,depth=0)=>{
-    if(node===undefined||node===null||depth>9)return;
+    if(node===undefined||node===null||depth>12)return;
     if(Array.isArray(node)){node.forEach(value=>walk(value,depth+1));return;}
     if(typeof node!=='object')return;
     for(const [key,value] of Object.entries(node)){
-      if(accepted.has(catalogNormalizeKey(key)))add(value);
+      const normalizedKey=catalogNormalizeKey(key);
+      const matched=accepted.has(normalizedKey)||aliasesNormalized.some(alias=>normalizedKey.startsWith(alias)||normalizedKey.endsWith(alias));
+      if(matched)add(value);
       if(value&&typeof value==='object')walk(value,depth+1);
     }
   };
-  walk(offer?.rawAcademic||offer);
+  // Location fields may be in either the normalized offer or the original DMH payload.
+  walk(offer);
+  if(offer?.rawAcademic&&offer.rawAcademic!==offer)walk(offer.rawAcademic);
   return values;
 }
 function catalogCourse(offer){
@@ -354,11 +363,14 @@ function catalogCourse(offer){
     ])[0] || offer?.name || 'Curso não informado'
   ).trim();
 }
+function catalogState(offer){
+  return catalogFieldValues(offer,['state','stateName','stateCode','stateAcronym','stateDescription','uf','ufName','ufCode','province','estado','estadoNome','estadoSigla','siglaEstado','unidadeFederativa','federativeUnit'])[0]||'';
+}
 function catalogCity(offer){
-  return catalogFieldValues(offer,['city','cityName','cidade','cidadeNome','municipality','municipalityName','municipio','municipioNome','cityDescription','municipalityDescription','cityLabel'])[0]||'';
+  return catalogFieldValues(offer,['city','cityName','cityCode','cityDescription','cityLabel','cityOfUnit','campusCity','locationCity','locality','municipality','municipalityName','municipalityDescription','municipio','municipioNome','cidade','cidadeNome','cidadeDescricao','nomeCidade','municipioDescricao','county'])[0]||'';
 }
 function catalogUnits(offer){
-  return catalogFieldValues(offer,['unit','unitName','unidade','unidadeNome','campus','campusName','campusDescription','unitDescription','schoolUnit','schoolUnitName','campusUnitName','unitLabel','unidadeDescricao']);
+  return catalogFieldValues(offer,['unit','unitName','unitCode','unitDescription','unitLabel','unitOfStudy','schoolUnit','schoolUnitName','educationUnit','educationUnitName','campus','campusName','campusCode','campusDescription','campusUnitName','branchName','polo','poloName','unidade','unidadeNome','unidadeDescricao','nomeUnidade','institucionalUnit']);
 }
 function catalogUnit(offer){
   return catalogUnits(offer)[0]||'';
@@ -377,24 +389,46 @@ function catalogGroupKey(offer,index=0){
   if(!city||!unit)return 'single:'+catalogOfferIdentity(offer,index);
   return JSON.stringify([course.toLocaleLowerCase('pt-BR'),city.toLocaleLowerCase('pt-BR'),catalogModality(offer).toLocaleLowerCase('pt-BR'),catalogShift(offer).toLocaleLowerCase('pt-BR')]);
 }
-function updateCatalogCityOptions(){
-  if(!catalogCityFilter)return;
-  const previous=catalogCityFilter.value;
-  const cities=[...new Set(catalogOffers.map(catalogCity).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'pt-BR'));
-  catalogCityFilter.innerHTML='<option value="">Todas as cidades</option>'+cities.map(city=>'<option value="'+esc(city)+'">'+esc(city)+'</option>').join('');
-  if(cities.includes(previous))catalogCityFilter.value=previous;
+function updateCatalogLocationOptions(){
+  const previousState=catalogStateFilter?.value||'';
+  const previousCity=catalogCityFilter?.value||'';
+  const previousUnit=catalogUnitFilter?.value||'';
+  const sortValues=values=>[...new Set(values.filter(Boolean))].sort((a,b)=>a.localeCompare(b,'pt-BR'));
+  const states=sortValues(catalogOffers.map(catalogState));
+  if(catalogStateFilter){
+    catalogStateFilter.innerHTML='<option value="">Todos os estados</option>'+states.map(value=>'<option value="'+esc(value)+'">'+esc(value)+'</option>').join('');
+    if(states.includes(previousState))catalogStateFilter.value=previousState;
+  }
+  const state=catalogStateFilter?.value||'';
+  const stateRows=catalogOffers.filter(offer=>!state||catalogState(offer)===state);
+  const cities=sortValues(stateRows.map(catalogCity));
+  if(catalogCityFilter){
+    catalogCityFilter.innerHTML='<option value="">Todas as cidades</option>'+cities.map(value=>'<option value="'+esc(value)+'">'+esc(value)+'</option>').join('');
+    if(cities.includes(previousCity))catalogCityFilter.value=previousCity;
+  }
+  const city=catalogCityFilter?.value||'';
+  const cityRows=stateRows.filter(offer=>!city||catalogCity(offer)===city);
+  const units=sortValues(cityRows.map(catalogUnit));
+  if(catalogUnitFilter){
+    catalogUnitFilter.innerHTML='<option value="">Todas as unidades</option>'+units.map(value=>'<option value="'+esc(value)+'">'+esc(value)+'</option>').join('');
+    if(units.includes(previousUnit))catalogUnitFilter.value=previousUnit;
+  }
 }
 function filteredCatalogOffers(source=catalogOffers){
   const q=String(catalogSearch?.value||'').trim().toLowerCase();
   const course=String(catalogCourseFilter?.value||'').trim().toLowerCase();
+  const state=String(catalogStateFilter?.value||'');
   const city=String(catalogCityFilter?.value||'');
+  const unit=String(catalogUnitFilter?.value||'');
   const channel=String(catalogChannel?.value||'');
   const finance=String(catalogFinanceFilter?.value||'');
   return source.filter(o=>{
     const text=[o.idDMH,o.businessKey,o.name,o.source].join(' ').toLowerCase();
     if(q&&!text.includes(q))return false;
     if(course&&!catalogCourse(o).toLowerCase().includes(course))return false;
+    if(state&&catalogState(o)!==state)return false;
     if(city&&catalogCity(o)!==city)return false;
+    if(unit&&catalogUnit(o)!==unit)return false;
     if(channel&&!o.channels?.some(c=>String(c.id)===channel))return false;
     if(finance==='yes'&&!o.hasFinancialOffer)return false;
     if(finance==='no'&&o.hasFinancialOffer)return false;
@@ -420,7 +454,7 @@ function catalogCardGroups(rows){
 }
 function renderCatalog(){
   if(!catalogCards)return;
-  updateCatalogCityOptions();
+  updateCatalogLocationOptions();
   const rows=filteredCatalogOffers();
   catalogCountText.textContent=rows.length.toLocaleString('pt-BR')+' oferta(s) exibida(s) de '+catalogOffers.length.toLocaleString('pt-BR')+' carregada(s).';
   if(!rows.length){
@@ -434,6 +468,7 @@ function renderCatalog(){
     const fin=Array.isArray(selected.financialOffers)?selected.financialOffers[0]||{}:{};
     const unit=catalogUnit(selected);
     const city=catalogCity(selected);
+    const state=catalogState(selected);
     const modality=catalogModality(selected);
     const shift=catalogShift(selected);
     const installments = Array.isArray(fin.installments)
@@ -466,6 +501,7 @@ const price =
       '<div class="offer-price-label">'+(price!==undefined&&price!==null&&price!==''?'Valor da oferta':'Valor não informado')+'</div>'+
       '<div class="offer-price">'+(price!==undefined&&price!==null&&price!==''?esc(catalogMoney(price)):'Consulte as condições')+'</div>'+
       '<div class="offer-card-details">'+
+        '<div><span>Estado</span><strong>'+esc(state||'Estado não informado')+'</strong></div>'+
         '<div><span>Cidade</span><strong>'+esc(city||'Cidade não informada')+'</strong></div>'+
         '<div><span>Unidade</span>'+unitControl+'</div>'+
       '</div>'+
